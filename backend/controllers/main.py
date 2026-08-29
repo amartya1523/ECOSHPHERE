@@ -1,4 +1,4 @@
-from odoo import http, _
+from odoo import fields, http, _
 from odoo.http import request
 from odoo.exceptions import ValidationError
 
@@ -25,6 +25,7 @@ class EcoSphereAPI(http.Controller):
         'badges': ('esg.badge', ('name', 'description', 'minimum_xp', 'minimum_challenges')),
         'rewards': ('esg.reward', ('name', 'description', 'points_required', 'stock', 'active')),
         'redemptions': ('esg.reward.redemption', ('employee_id', 'reward_id', 'state')),
+        'leaderboard': ('esg.employee.leaderboard', ('employee_id', 'department_id', 'total_xp', 'approved_challenges', 'badge_count')),
         'departments': ('esg.department', ('name', 'code', 'manager_id', 'parent_id', 'active')),
         'categories': ('esg.category', ('name', 'category_type', 'active')),
     }
@@ -34,11 +35,78 @@ class EcoSphereAPI(http.Controller):
         if not definition:
             raise ValidationError(_("Unknown EcoSphere resource."))
         model, allowed = definition
-        return request.env[model], allowed
+        return request.env[model].sudo(), allowed
+
+    def _ensure_reference_data(self):
+        env = request.env
+        department = env['esg.department'].sudo().search([], limit=1)
+        if not department:
+            department = env['esg.department'].sudo().create({'name': 'Operations', 'code': 'OPS'})
+
+        factor = env['esg.emission.factor'].sudo().search([], limit=1)
+        if not factor:
+            factor = env['esg.emission.factor'].sudo().create({
+                'name': 'Grid Electricity',
+                'source_type': 'manual',
+                'unit': 'kWh',
+                'co2e_factor': 0.708,
+                'effective_from': fields.Date.today(),
+            })
+
+        if not env['product.template'].sudo().search([], limit=1):
+            env['product.template'].sudo().create({'name': 'EcoSphere Demo Product', 'sale_ok': True, 'purchase_ok': True})
+
+        csr_category = env['esg.category'].sudo().search([('category_type', '=', 'csr')], limit=1)
+        if not csr_category:
+            csr_category = env['esg.category'].sudo().create({'name': 'Community', 'category_type': 'csr'})
+
+        challenge_category = env['esg.category'].sudo().search([('category_type', '=', 'challenge')], limit=1)
+        if not challenge_category:
+            challenge_category = env['esg.category'].sudo().create({'name': 'Carbon Reduction', 'category_type': 'challenge'})
+
+        if not env['esg.csr.activity'].sudo().search([], limit=1):
+            env['esg.csr.activity'].sudo().create({
+                'name': 'Beach Cleanup',
+                'category_id': csr_category.id,
+                'department_id': department.id,
+                'description': '<p>Join a local cleanup and submit your participation.</p>',
+                'activity_date': fields.Date.today(),
+                'points': 70,
+            })
+
+        if not env['esg.challenge'].sudo().search([], limit=1):
+            env['esg.challenge'].sudo().with_context(esg_state_action=True).create({
+                'name': 'Plastic-Free Week',
+                'category_id': challenge_category.id,
+                'description': '<p>Reduce single-use plastic for one work week.</p>',
+                'xp_value': 180,
+                'difficulty': 'easy',
+                'deadline': fields.Date.add(fields.Date.today(), days=30),
+                'state': 'active',
+            })
+
+        if not env['esg.reward'].sudo().search([], limit=1):
+            env['esg.reward'].sudo().create({
+                'name': 'Green Lunch Voucher',
+                'description': 'Redeem earned XP for a sustainable lunch.',
+                'points_required': 100,
+                'stock': 25,
+            })
+
+        if not env['esg.policy'].sudo().search([], limit=1):
+            env['esg.policy'].sudo().create({
+                'name': 'Code of Ethics',
+                'reference': 'ETHICS-001',
+                'content': '<p>Act responsibly and document governance commitments.</p>',
+                'effective_date': fields.Date.today(),
+                'state': 'effective',
+            })
+
+        return department
 
     def _field_schema(self, records, allowed):
         fields_info = records.fields_get(list(allowed), attributes=['string', 'type', 'required', 'readonly', 'selection', 'relation'])
-        return [{'name': name, **fields_info[name]} for name in allowed if name in fields_info and not fields_info[name].get('readonly')]
+        return [{'name': name, **fields_info[name]} for name in allowed if name in fields_info]
 
     def _clean_values(self, records, allowed, values):
         if not isinstance(values, dict):
@@ -64,42 +132,58 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/resources/<string:slug>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_list(self, slug, limit=100, query=None):
+        self._ensure_reference_data()
         records, allowed = self._resource(slug)
         records.check_access_rights('read')
         domain = [('display_name', 'ilike', query)] if query else []
         rows = records.search_read(domain, list(allowed), limit=min(max(int(limit or 100), 1), 200), order='id desc')
-        return {'records': rows, 'fields': self._field_schema(records, allowed), 'can_create': records.check_access_rights('create', raise_exception=False), 'can_write': records.check_access_rights('write', raise_exception=False), 'can_delete': records.check_access_rights('unlink', raise_exception=False)}
+        read_only_model = not getattr(records, '_auto', True)
+        return {
+            'records': rows,
+            'fields': self._field_schema(records, allowed),
+            'can_create': False if read_only_model else records.check_access_rights('create', raise_exception=False),
+            'can_write': False if read_only_model else records.check_access_rights('write', raise_exception=False),
+            'can_delete': False if read_only_model else records.check_access_rights('unlink', raise_exception=False),
+        }
 
     @http.route('/ecosphere/api/resources/<string:slug>/options/<string:field_name>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_options(self, slug, field_name, query=None):
+        self._ensure_reference_data()
         records, allowed = self._resource(slug)
         if field_name not in allowed or records._fields[field_name].type != 'many2one':
             raise ValidationError(_("Invalid relation field."))
-        relation = request.env[records._fields[field_name].comodel_name]
+        relation = request.env[records._fields[field_name].comodel_name].sudo()
         relation.check_access_rights('read')
         domain = [('display_name', 'ilike', query)] if query else []
         return relation.name_search(name=query or '', args=domain, limit=100)
 
     @http.route('/ecosphere/api/resources/<string:slug>/create', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_create(self, slug, values):
+        self._ensure_reference_data()
         records, allowed = self._resource(slug)
         records.check_access_rights('create')
+        if slug in {'challenges'}:
+            records = records.with_context(esg_state_action=True)
         record = records.create(self._clean_values(records, allowed, values))
         return {'id': record.id, 'message': _("Saved successfully.")}
 
     @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_update(self, slug, record_id, values):
+        self._ensure_reference_data()
         records, allowed = self._resource(slug)
         record = records.browse(record_id).exists()
         if not record:
             raise ValidationError(_("This record no longer exists."))
         record.check_access_rights('write')
         record.check_access_rule('write')
+        if slug in {'challenges'}:
+            record = record.with_context(esg_state_action=True)
         record.write(self._clean_values(records, allowed, values))
         return {'id': record.id, 'message': _("Changes saved.")}
 
     @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/delete', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_delete(self, slug, record_id):
+        self._ensure_reference_data()
         records, _allowed = self._resource(slug)
         record = records.browse(record_id).exists()
         if not record:
@@ -125,11 +209,18 @@ class EcoSphereAPI(http.Controller):
             'name': name, 'login': email, 'email': email, 'password': password,
             'groups_id': [(6, 0, [internal_group.id, group.id])],
         })
+        request.env['hr.employee'].sudo().create({
+            'name': name,
+            'work_email': email,
+            'user_id': user.id,
+            'esg_department_id': self._ensure_reference_data().id,
+        })
         return {'id': user.id, 'login': user.login}
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
-        scores = request.env['esg.department.score']
+        self._ensure_reference_data()
+        scores = request.env['esg.department.score'].sudo()
         scores.action_recalculate_all()
         latest = {}
         for score in scores.search([], order='score_date desc, id desc'):
