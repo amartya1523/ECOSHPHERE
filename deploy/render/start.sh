@@ -3,30 +3,51 @@ set -euo pipefail
 
 export PORT="${PORT:-10000}"
 export ODOO_HTTP_PORT="${ODOO_HTTP_PORT:-8069}"
-export ODOO_DATABASE="${ODOO_DATABASE:-${POSTGRES_DB:-ecosphere-db}}"
 export ODOO_ADDONS_PATH="${ODOO_ADDONS_PATH:-/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons}"
 export ODOO_MODULE="${ODOO_MODULE:-eco_sphere_esg}"
 
-if [[ -n "${DATABASE_URL:-}" ]]; then
-  eval "$(
-    python3 - <<'PY'
+eval "$(
+  python3 - <<'PY'
 import os
-from urllib.parse import urlparse, unquote
+import shlex
+from urllib.parse import unquote, urlparse
 
-url = urlparse(os.environ["DATABASE_URL"])
-print(f'export ODOO_DB_HOST="{url.hostname or ""}"')
-print(f'export ODOO_DB_PORT="{url.port or 5432}"')
-print(f'export ODOO_DB_USER="{unquote(url.username or "")}"')
-print(f'export ODOO_DB_PASSWORD="{unquote(url.password or "")}"')
-print(f'export ODOO_DATABASE="{unquote((url.path or "").lstrip("/")) or os.environ.get("ODOO_DATABASE", "ecosphere-db")}"')
+def first(*names):
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return ""
+
+database_url = first("DATABASE_URL", "ODOO_DATABASE_URL", "POSTGRES_URL")
+host_value = first("ODOO_DB_HOST", "POSTGRES_HOST", "HOST")
+
+if not database_url and host_value.startswith(("postgres://", "postgresql://")):
+    database_url = host_value
+    host_value = ""
+
+values = {
+    "ODOO_DB_HOST": host_value,
+    "ODOO_DB_PORT": first("ODOO_DB_PORT", "POSTGRES_PORT", "PORT_DB") or "5432",
+    "ODOO_DB_USER": first("ODOO_DB_USER", "POSTGRES_USER") or "odoo",
+    "ODOO_DB_PASSWORD": first("ODOO_DB_PASSWORD", "POSTGRES_PASSWORD", "PASSWORD"),
+    "ODOO_DATABASE": first("ODOO_DATABASE", "POSTGRES_DB") or "ecosphere-db",
+}
+
+if database_url:
+    url = urlparse(database_url)
+    values.update({
+        "ODOO_DB_HOST": url.hostname or "",
+        "ODOO_DB_PORT": str(url.port or 5432),
+        "ODOO_DB_USER": unquote(url.username or ""),
+        "ODOO_DB_PASSWORD": unquote(url.password or ""),
+        "ODOO_DATABASE": unquote((url.path or "").lstrip("/")) or values["ODOO_DATABASE"],
+    })
+
+for key, value in values.items():
+    print(f"export {key}={shlex.quote(value)}")
 PY
-  )"
-else
-  export ODOO_DB_HOST="${ODOO_DB_HOST:-${POSTGRES_HOST:-${HOST:-}}}"
-  export ODOO_DB_PORT="${ODOO_DB_PORT:-${POSTGRES_PORT:-${PORT_DB:-5432}}}"
-  export ODOO_DB_USER="${ODOO_DB_USER:-${POSTGRES_USER:-${USER:-odoo}}}"
-  export ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-${POSTGRES_PASSWORD:-${PASSWORD:-}}}"
-fi
+)"
 
 if [[ -z "${ODOO_DB_HOST:-}" || -z "${ODOO_DB_USER:-}" || -z "${ODOO_DB_PASSWORD:-}" ]]; then
   echo "Missing database settings. Set DATABASE_URL or ODOO_DB_HOST, ODOO_DB_USER, and ODOO_DB_PASSWORD." >&2
