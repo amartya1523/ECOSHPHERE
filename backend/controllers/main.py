@@ -153,7 +153,22 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
     def signup(self, name, email, password):
-        raise ValidationError(_("Account creation is managed by your EcoSphere administrator."))
+        """Provision an enterprise owner; employee accounts remain admin-only."""
+        name, email = (name or '').strip(), (email or '').strip().lower()
+        if len(name) < 2 or '@' not in email or len(password or '') < 8:
+            raise ValidationError(_("Enter a name, valid work email, and password of at least 8 characters."))
+        Users = request.env['res.users'].sudo()
+        if Users.search_count([('login', '=', email)]):
+            raise ValidationError(_("An account already exists for this email address."))
+        manager_group = request.env.ref('eco_sphere_esg.group_esg_manager').sudo()
+        user = Users.with_context(no_reset_password=True).create({
+            'name': name,
+            'login': email,
+            'email': email,
+            'password': password,
+            'groups_id': [(6, 0, [manager_group.id])],
+        })
+        return {'id': user.id, 'message': _("Enterprise administrator account created.")}
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
