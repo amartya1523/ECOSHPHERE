@@ -7,6 +7,13 @@ Native Odoo addon for ESG operations, kept deliberately split into:
 - `backend/eco_sphere_esg/` — installable Odoo addon, ORM models, security, views, data and QWeb reports.
 - `frontend/` — boundary and implementation notes for the later standalone OWL/dashboard layer.
 
+## Project context
+
+Persistent product and engineering context is maintained in [`context/`](context/):
+[`PRD.md`](context/PRD.md), [`Architecture.md`](context/Architecture.md),
+[`Rules.md`](context/Rules.md), [`Phases.md`](context/Phases.md),
+[`Design.md`](context/Design.md), and [`Memory.md`](context/Memory.md).
+
 ## Install
 
 Add `backend/` to Odoo's `addons_path`, update the Apps list, then install **EcoSphere ESG Management**. The addon depends on `base`, `mail`, `hr`, and `product`.
