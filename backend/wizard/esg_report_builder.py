@@ -34,7 +34,7 @@ class ESGReportBuilder(models.TransientModel):
         return domain
 
     def action_run_report(self):
-        return {"type": "ir.actions.act_window", "name": "Custom ESG Report", "res_model": self._target(), "view_mode": "tree,pivot,graph", "domain": self._domain(), "target": "current"}
+        return {"type": "ir.actions.act_window", "name": "Custom ESG Report", "res_model": self._target(), "view_mode": "list,pivot,graph", "domain": self._domain(), "target": "current"}
 
     def action_export_csv(self):
         records = self.env[self._target()].search(self._domain())

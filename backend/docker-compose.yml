@@ -30,7 +30,7 @@ services:
       USER: ${POSTGRES_USER:-odoo}
       PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
     volumes:
-      - ./eco_sphere_esg:/mnt/extra-addons/eco_sphere_esg
+      - .:/mnt/extra-addons/eco_sphere_esg
       - ecosphere-odoo-data:/var/lib/odoo
     command: >-
       odoo --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
