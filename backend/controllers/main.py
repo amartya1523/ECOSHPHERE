@@ -137,7 +137,18 @@ class EcoSphereAPI(http.Controller):
         rows = list(latest.values())
         average = lambda field: round(sum(getattr(row, field) for row in rows) / len(rows), 1) if rows else 0.0
         return request.make_json_response({
-            'user': {'name': request.env.user.name},
+            'user': {
+                'name': request.env.user.name,
+                'initials': ''.join(part[:1] for part in request.env.user.name.split()[:2]).upper(),
+                'role': 'ESG Manager' if request.env.user.has_group('eco_sphere_esg.group_esg_manager') else 'ESG User',
+            },
             'kpis': {'environmental': average('environmental_score'), 'social': average('social_score'), 'governance': average('governance_score'), 'overall': average('total_score')},
             'ranking': [{'name': row.department_id.name, 'score': round(row.total_score, 1)} for row in sorted(rows, key=lambda row: row.total_score, reverse=True)[:5]],
+            'counts': {
+                'carbon_transactions': request.env['esg.carbon.transaction'].search_count([]),
+                'environmental_goals': request.env['esg.environmental.goal'].search_count([]),
+                'csr_activities': request.env['esg.csr.activity'].search_count([]),
+                'active_challenges': request.env['esg.challenge'].search_count([('state', '=', 'active')]),
+                'open_issues': request.env['esg.compliance.issue'].search_count([('state', '=', 'open')]),
+            },
         })
