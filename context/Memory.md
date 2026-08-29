@@ -18,3 +18,8 @@
 - Status: Added the project-local `context/` documentation suite (PRD, Architecture, Rules, Phases, Design and this Memory log).
 - Next: Keep these documents aligned with actual code decisions, particularly Odoo install status and API integration.
 - Notes: The previous `memory.md` in Downloads remains a historical external reference; `context/Memory.md` is the repository source of truth from now on.
+
+## 2026-08-29 — Local backend runtime setup
+- Status: Added `backend/docker-compose.yml`, `.env.example` and `backend/README.md` for Odoo 17 + PostgreSQL 16 local startup.
+- Next: Install/open Docker Desktop, create `backend/.env` from the example, start the containers, create `ecosphere_db`, and install the addon.
+- Notes: Docker CLI is not currently installed in this workspace, so Compose could not be executed or validated against a local Docker daemon.

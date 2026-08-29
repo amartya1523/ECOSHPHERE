@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16
+    container_name: ecosphere-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+    volumes:
+      - ecosphere-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  odoo:
+    image: odoo:17.0
+    container_name: ecosphere-odoo
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ODOO_PORT:-8069}:8069"
+    environment:
+      HOST: db
+      PORT: 5432
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+    volumes:
+      - ./eco_sphere_esg:/mnt/extra-addons/eco_sphere_esg
+      - ecosphere-odoo-data:/var/lib/odoo
+    command: >-
+      odoo --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+
+volumes:
+  ecosphere-db-data:
+  ecosphere-odoo-data:

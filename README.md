@@ -18,6 +18,8 @@ Persistent product and engineering context is maintained in [`context/`](context
 
 Add `backend/` to Odoo's `addons_path`, update the Apps list, then install **EcoSphere ESG Management**. The addon depends on `base`, `mail`, `hr`, and `product`.
 
+For a ready-to-run local Docker backend, follow [backend/README.md](backend/README.md).
+
 ## Included business safeguards
 
 - CSR approvals enforce the global evidence setting and activity-level evidence requirement.
