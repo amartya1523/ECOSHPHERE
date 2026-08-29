@@ -26,7 +26,7 @@
  <menuitem id="menu_esg_report_governance" name="Governance Report" parent="menu_esg_reports" action="action_esg_report_governance"/>
  <menuitem id="menu_esg_report_summary" name="ESG Summary Report" parent="menu_esg_reports" action="action_esg_report_summary"/>
  <menuitem id="menu_esg_report_builder" name="Custom Builder" parent="menu_esg_reports" action="action_esg_report_builder"/>
- <menuitem id="menu_esg_settings" name="Settings" parent="menu_esg_root" sequence="90" groups="eco_sphere_esg.group_esg_manager"/>
+ <menuitem id="menu_esg_settings" name="Settings" parent="menu_esg_root" sequence="90" groups="eco_sphere_esg.group_esg_admin,eco_sphere_esg.group_esg_manager"/>
  <menuitem id="menu_esg_departments" name="Departments" parent="menu_esg_settings" action="action_esg_department"/>
  <menuitem id="menu_esg_categories" name="Categories" parent="menu_esg_settings" action="action_esg_category"/>
  <menuitem id="menu_esg_config" name="Configuration" parent="menu_esg_settings" action="action_esg_settings"/>

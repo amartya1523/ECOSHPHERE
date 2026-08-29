@@ -16,7 +16,7 @@ services:
       retries: 10
 
   odoo:
-    image: odoo:17.0
+    image: odoo:18.0
     container_name: ecosphere-odoo
     restart: unless-stopped
     depends_on:

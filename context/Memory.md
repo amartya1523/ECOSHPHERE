@@ -1,13 +1,28 @@
 # Memory Log — EcoSphere
 
-> Read this file first at the start of a new implementation session. Append a dated entry after meaningful work; do not rewrite history.
+> **Instructions for the AI coding assistant working on this project:**
+>
+> This file is your persistent memory across chat sessions. The codebase and other planning docs (PRD, Architecture, Rules, Phases, Design) don't change often, but you need a fast way to know *where things stand* without re-reading the whole project every time.
+>
+> **Update this file whenever you:**
+> - Complete a phase or a meaningful chunk of work
+> - Make a decision that deviates from the original docs (and why)
+> - Hit a blocker or leave something half-finished
+> - Learn something about the codebase that isn't obvious from the code itself
+>
+> **Format for each entry:** append, don't rewrite history. Use:
+> ```
+> ## {Date or Session Label}
+> - Status: {what's done}
+> - Next: {what to do next}
+> - Notes: {gotchas, decisions, deviations from the plan}
+> ```
+>
+> At the start of a new chat session, read this file first (before re-reading the whole codebase) to get oriented. Only dig into the actual code when this file doesn't answer your question.
 
 ---
 
-## 2026-08-29 — Initial implementation
-- Status: Created the native `backend/eco_sphere_esg` Odoo addon with models, XML views, security, seed data, reports and a report-builder wizard. Python compilation and XML parsing passed.
-- Next: Install the addon on the selected Odoo version and add automated Odoo tests.
-- Notes: Auto-emission source hooks and production notifications still need target-module dependencies and explicit implementation.
+<!-- New entries go below this line -->
 
 ## 2026-08-29 — Standalone frontend
 - Status: Added `frontend/` with Vite, React and Framer Motion. It contains Apple-inspired login/sign-up views, a responsive executive dashboard and reduced-motion support. `npm run build` passes.
@@ -28,3 +43,8 @@
 - Status: Odoo 17 is installed at `~/odoo-17` and runs against the existing PostgreSQL 18 `ecosphere_db` database. The EcoSphere addon was installed successfully and HTTP login at `http://127.0.0.1:8069/web/login` returned 200.
 - Next: Use the running Odoo UI for workflow testing, then add automated Odoo tests and install `wkhtmltopdf` before validating PDF reports.
 - Notes: macOS 26 + Intel Homebrew Python 3.11 was incompatible (empty macOS version and `pyexpat`/libpq linker errors). The working runtime uses the existing native Python 3.12 at `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12` and `psycopg2-binary==2.9.9`. Manifest data order was corrected so the report-builder action loads before its menu reference.
+
+## 2026-08-29 — Phases 1-5 backend completion
+- Status: Completed phases 1-5 in the existing `eco_sphere_esg` Odoo addon rather than creating a separate `esg_core` module. Added the planned ESG Admin/User security shape, hierarchy-aware department employee counts, settings weight validation coverage, emission-factor effective dates, carbon transaction search filters, environmental goal target metric/value tracking, product ESG profiles, and purchase-order based auto carbon transaction generation controlled by the Auto Emission Calculation setting.
+- Next: Continue with Phase 6: native Odoo environmental dashboard and department carbon tracking rollups.
+- Notes: This work was previously verified in a Docker/Odoo 18 environment. The current workstation runs the addon natively with Odoo 17 and PostgreSQL 18, so Odoo 17 compatibility should remain the local target.
