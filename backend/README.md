@@ -8,7 +8,7 @@ The backend is an Odoo addon, so it needs both an Odoo server and PostgreSQL.
 2. Create the environment file:
 
    ```bash
-   cd /Users/amartyavikramsingh/Desktop/project/ECOshphere/backend
+   cd /Users/sanketmistry/Desktop/Ecosphere/ECOSHPHERE/backend
    cp .env.example .env
    ```
 
@@ -22,6 +22,8 @@ The backend is an Odoo addon, so it needs both an Odoo server and PostgreSQL.
 5. Open `http://localhost:8069`.
 6. Create a database named `ecosphere_db` in the Odoo database manager.
 7. In Odoo, open **Apps** → **Update Apps List** → search **EcoSphere ESG Management** → **Install**.
+
+Docker mounts this `backend/` folder into Odoo as `/mnt/extra-addons/eco_sphere_esg`. That keeps the local project simple while preserving the Odoo technical module name `eco_sphere_esg`.
 
 ## Useful commands
 
@@ -39,7 +41,7 @@ docker compose restart odoo
 docker compose exec odoo odoo -d ecosphere_db --db_host=db --db_user=odoo --db_password="$POSTGRES_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons -u eco_sphere_esg --stop-after-init --no-http
 
 # Run the EcoSphere module tests
-docker compose exec odoo odoo -d ecosphere_test --db_host=db --db_user=odoo --db_password="$POSTGRES_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons -i eco_sphere_esg --test-enable --test-tags /eco_sphere_esg --stop-after-init --no-http --without-demo=all
+docker compose exec odoo odoo -d ecosphere_test --db_host=db --db_user=odoo --db_password="$POSTGRES_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons -i eco_sphere_esg --test-enable --test-tags /eco_sphere_esg --stop-after-init --no-http --http-port=8071 --without-demo=all
 ```
 
 Do not run `docker compose down -v` unless you intentionally want to delete the local PostgreSQL database.
