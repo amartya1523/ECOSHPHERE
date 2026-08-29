@@ -22,10 +22,10 @@ class EcoSphereAPI(http.Controller):
         'employee-participation': ('esg.csr.participation', ('employee_id', 'activity_id', 'completion_date', 'state')),
         'diversity-dashboard': ('esg.diversity.metric', ('department_id', 'metric_type', 'value', 'period', 'notes')),
         'training-completions': ('esg.training.completion', ('name', 'employee_id', 'department_id', 'completion_date', 'status')),
-        'policies': ('esg.policy', ('name', 'category_id', 'version', 'effective_date', 'acknowledgement_required', 'acknowledgement_progress', 'state', 'assignment_type', 'assignment_department_id', 'assignment_employee_id', 'content', 'active')),
+        'policies': ('esg.policy', ('name', 'category_id', 'version', 'effective_date', 'review_date', 'reviewer_id', 'acknowledgement_required', 'acknowledgement_progress', 'state', 'assignment_type', 'assignment_department_id', 'assignment_employee_id', 'content', 'document', 'document_filename', 'active')),
         'policy-acknowledgements': ('esg.policy.acknowledgement', ('policy_id', 'employee_id', 'department_id', 'policy_version', 'acknowledged_on', 'state')),
-        'audits': ('esg.audit', ('name', 'department_id', 'auditor_id', 'audit_date', 'findings', 'state')),
-        'compliance-issues': ('esg.compliance.issue', ('name', 'audit_id', 'department_id', 'severity', 'description', 'owner_id', 'due_date', 'state')),
+        'audits': ('esg.audit', ('name', 'department_id', 'auditor_id', 'audit_date', 'due_date', 'findings', 'evidence', 'evidence_filename', 'state')),
+        'compliance-issues': ('esg.compliance.issue', ('name', 'audit_id', 'department_id', 'severity', 'description', 'evidence', 'evidence_filename', 'owner_id', 'due_date', 'state', 'resolution_note')),
         'challenges': ('esg.challenge', ('name', 'category_id', 'description', 'xp_value', 'difficulty', 'evidence_required', 'deadline', 'state')),
         'challenge-participation': ('esg.challenge.participation', ('challenge_id', 'employee_id', 'progress', 'state')),
         'badges': ('esg.badge', ('name', 'description', 'minimum_xp', 'minimum_challenges')),
@@ -192,6 +192,9 @@ class EcoSphereAPI(http.Controller):
         if action == 'remind':
             count = policy.action_send_acknowledgement_reminders()
             return {'message': _("Sent %(count)s acknowledgement reminder(s).") % {'count': count}}
+        if action == 'mark_reviewed':
+            policy.action_mark_reviewed()
+            return {'message': _("Policy review marked complete.")}
         raise ValidationError(_("Unknown policy action."))
 
     @http.route('/ecosphere/api/policy-acknowledgements/<int:acknowledgement_id>/acknowledge', type='json', auth='user', methods=['POST'], csrf=False)
@@ -228,6 +231,28 @@ class EcoSphereAPI(http.Controller):
             'needs_reminder': needs_reminder,
         }
 
+    def _policy_review_state(self, policy):
+        if policy.state == 'archived':
+            return 'archived'
+        if not policy.review_date:
+            return 'unscheduled'
+        today = fields.Date.context_today(policy)
+        if policy.review_date < today:
+            return 'overdue'
+        if policy.review_date <= today + timedelta(days=30):
+            return 'due_soon'
+        return 'scheduled'
+
+    def _policy_timeline(self, policy):
+        timeline = [{'label': _("Created"), 'date': str(policy.create_date or ''), 'detail': policy.create_uid.display_name or ''}]
+        if policy.effective_date:
+            timeline.append({'label': _("Effective date"), 'date': str(policy.effective_date), 'detail': policy.state})
+        if policy.last_reviewed_on:
+            timeline.append({'label': _("Last reviewed"), 'date': str(policy.last_reviewed_on), 'detail': policy.reviewer_id.display_name or request.env.user.display_name})
+        if policy.review_date:
+            timeline.append({'label': _("Next review"), 'date': str(policy.review_date), 'detail': self._policy_review_state(policy).replace('_', ' ')})
+        return timeline
+
     def _policy_row(self, policy, is_admin):
         own_ack = policy.acknowledgement_ids.filtered(lambda row: row.employee_id == request.env.user.employee_id)[:1]
         acknowledgements = policy.acknowledgement_ids.sudo() if is_admin else own_ack
@@ -238,6 +263,11 @@ class EcoSphereAPI(http.Controller):
             'category_id': policy.category_id.id or False,
             'version': policy.version,
             'effective_date': str(policy.effective_date or ''),
+            'review_date': str(policy.review_date or ''),
+            'reviewer_id': policy.reviewer_id.id or False,
+            'reviewer': policy.reviewer_id.display_name or '',
+            'review_state': self._policy_review_state(policy),
+            'last_reviewed_on': str(policy.last_reviewed_on or ''),
             'acknowledgement_required': policy.acknowledgement_required,
             'acknowledgement_progress': round(policy.acknowledgement_progress or 0.0),
             'acknowledged_count': policy.acknowledged_count,
@@ -250,6 +280,7 @@ class EcoSphereAPI(http.Controller):
             'assignment_summary': self._policy_assignment_summary(policy),
             'content': policy.content or '',
             'content_text': html2plaintext(policy.content or '').strip(),
+            'document_filename': policy.document_filename or '',
             'active': policy.active,
             'needs_reminder': any(self._policy_acknowledgement_row(row)['needs_reminder'] for row in acknowledgements),
             'my_acknowledgement': own_ack and {
@@ -264,7 +295,9 @@ class EcoSphereAPI(http.Controller):
                 'version': row.version,
                 'state': 'active' if row.state == 'effective' else row.state,
                 'effective_date': str(row.effective_date or ''),
+                'review_date': str(row.review_date or ''),
             } for row in request.env['esg.policy'].search([('name', '=', policy.name)], order='effective_date desc, id desc')],
+            'timeline': self._policy_timeline(policy),
         }
 
     def _filtered_policy_rows(self, rows, query=None, status='all', acknowledgement='all', policy_id=None, department_id=None):
@@ -313,6 +346,7 @@ class EcoSphereAPI(http.Controller):
         pending = sum(row['pending_count'] for row in rows) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'pending'])
         required = sum(row['acknowledgement_total'] for row in rows if row['acknowledgement_required']) if is_admin else len([row for row in rows if row['acknowledgement_required']])
         acknowledged = sum(row['acknowledged_count'] for row in rows if row['acknowledgement_required']) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'acknowledged'])
+        review_due = len([row for row in rows if row['review_state'] in {'due_soon', 'overdue'}])
         return {
             'is_manager': is_admin,
             'can_create': Policy.check_access_rights('create', raise_exception=False),
@@ -324,6 +358,8 @@ class EcoSphereAPI(http.Controller):
                 'pending': pending,
                 'needs_reminder': sum(len([item for item in row['acknowledgements'] if item['needs_reminder']]) for row in rows) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['needs_reminder']]),
                 'acknowledgement_rate': round(acknowledged * 100.0 / required) if required else 0,
+                'review_due': review_due,
+                'overdue_reviews': len([row for row in rows if row['review_state'] == 'overdue']),
             },
             'policy_options': policy_options,
             'categories': request.env['esg.category'].name_search('', args=[('category_type', '=', 'governance')], limit=100),
@@ -375,6 +411,11 @@ class EcoSphereAPI(http.Controller):
         }
 
     def _audit_issue_row(self, issue):
+        timeline = [{'label': _("Raised"), 'date': str(issue.create_date or ''), 'detail': issue.create_uid.display_name or ''}]
+        if issue.write_date and issue.write_date != issue.create_date:
+            timeline.append({'label': _("Last updated"), 'date': str(issue.write_date), 'detail': issue.state.replace('_', ' ')})
+        if issue.resolved_on:
+            timeline.append({'label': _("Closed"), 'date': str(issue.resolved_on), 'detail': issue.state.replace('_', ' ')})
         return {
             'id': issue.id,
             'name': issue.name,
@@ -385,19 +426,28 @@ class EcoSphereAPI(http.Controller):
             'severity': issue.severity,
             'description': issue.description or '',
             'description_text': html2plaintext(issue.description or '').strip(),
+            'evidence_filename': issue.evidence_filename or '',
             'owner_id': issue.owner_id.id or False,
             'owner': issue.owner_id.display_name or '',
             'due_date': str(issue.due_date or ''),
             'state': issue.state,
             'is_overdue': issue.is_overdue,
             'resolved_on': str(issue.resolved_on or ''),
+            'resolution_note': issue.resolution_note or '',
             'raised_by': issue.create_uid.display_name or '',
+            'timeline': timeline,
         }
 
     def _audit_row(self, audit, is_admin):
         issues = audit.issue_ids.sudo() if is_admin else audit.issue_ids
         open_issues = issues.filtered(lambda issue: issue.state == 'open')
         critical_issues = issues.filtered(lambda issue: issue.severity == 'critical')
+        active_issues = issues.filtered(lambda issue: issue.state in {'open', 'under_review', 'action_required'})
+        timeline = [{'label': _("Created"), 'date': str(audit.create_date or ''), 'detail': audit.create_uid.display_name or ''}]
+        if audit.audit_date:
+            timeline.append({'label': _("Audit date"), 'date': str(audit.audit_date), 'detail': audit.department_id.display_name or ''})
+        if audit.due_date:
+            timeline.append({'label': _("Target closure"), 'date': str(audit.due_date), 'detail': audit.state.replace('_', ' ')})
         return {
             'id': audit.id,
             'name': audit.name,
@@ -406,14 +456,17 @@ class EcoSphereAPI(http.Controller):
             'auditor_id': audit.auditor_id.id or False,
             'auditor': audit.auditor_id.display_name or '',
             'audit_date': str(audit.audit_date or ''),
+            'due_date': str(audit.due_date or ''),
             'findings': audit.findings or '',
             'findings_text': html2plaintext(audit.findings or '').strip(),
+            'evidence_filename': audit.evidence_filename or '',
             'state': audit.state,
             'issue_count': len(issues),
-            'open_issue_count': len(open_issues),
+            'open_issue_count': len(active_issues),
             'critical_issue_count': len(critical_issues),
             'overdue_issue_count': len(issues.filtered('is_overdue')),
             'issues': [self._audit_issue_row(issue) for issue in issues],
+            'timeline': timeline,
         }
 
     def _filtered_audit_rows(self, rows, query=None, status='all', severity='all', department_id=None, audit_id=None):
@@ -457,8 +510,9 @@ class EcoSphereAPI(http.Controller):
             needle = query.strip().lower()
             issues = [issue for issue in issues if needle in ' '.join([issue['name'], issue['audit'], issue['department'], issue['owner'], issue['description_text']]).lower()]
         total_issues = len(issues)
-        open_issues = len([issue for issue in issues if issue['state'] == 'open'])
+        open_issues = len([issue for issue in issues if issue['state'] in {'open', 'under_review', 'action_required'}])
         overdue_issues = len([issue for issue in issues if issue['is_overdue']])
+        severity_counts = {severity_key: len([issue for issue in issues if issue['severity'] == severity_key]) for severity_key in ['low', 'medium', 'high', 'critical']}
         return {
             'is_manager': is_admin,
             'can_create_audit': Audit.check_access_rights('create', raise_exception=False),
@@ -471,7 +525,12 @@ class EcoSphereAPI(http.Controller):
                 'completed': len([row for row in rows if row['state'] == 'completed']),
                 'open_issues': open_issues,
                 'overdue_issues': overdue_issues,
+                'under_review_issues': len([issue for issue in issues if issue['state'] == 'under_review']),
+                'action_required_issues': len([issue for issue in issues if issue['state'] == 'action_required']),
+                'rejected_issues': len([issue for issue in issues if issue['state'] == 'rejected']),
+                'high_risk_issues': severity_counts['high'] + severity_counts['critical'],
                 'resolution_rate': round((total_issues - open_issues) * 100.0 / total_issues) if total_issues else 0,
+                'severity_counts': severity_counts,
             },
             'audit_options': audit_options,
             'departments': request.env['esg.department'].name_search('', limit=100) if is_admin else [],
@@ -538,9 +597,21 @@ class EcoSphereAPI(http.Controller):
         if action == 'resolve':
             issue.action_resolve()
             return {'message': _("Compliance issue resolved.")}
+        if action == 'review':
+            issue.action_review()
+            return {'message': _("Compliance issue moved under review.")}
+        if action == 'require_action':
+            issue.action_require_action()
+            return {'message': _("Compliance issue marked action required.")}
+        if action == 'reject':
+            issue.action_reject()
+            return {'message': _("Compliance issue rejected.")}
         if action == 'reopen':
             issue.action_reopen()
             return {'message': _("Compliance issue reopened.")}
+        if action == 'remind':
+            count = issue.action_send_owner_reminder()
+            return {'message': _("Sent %(count)s compliance reminder(s).") % {'count': count}}
         raise ValidationError(_("Unknown compliance issue action."))
 
     @http.route('/ecosphere/api/audit-workspace/export', type='json', auth='user', methods=['POST'], csrf=False)
@@ -1367,6 +1438,6 @@ class EcoSphereAPI(http.Controller):
                 'environmental_goals': request.env['esg.environmental.goal'].search_count([]),
                 'csr_activities': request.env['esg.csr.activity'].search_count([]),
                 'active_challenges': request.env['esg.challenge'].search_count([('state', '=', 'active')]),
-                'open_issues': request.env['esg.compliance.issue'].search_count([('state', '=', 'open')]),
+                'open_issues': request.env['esg.compliance.issue'].search_count([('state', 'in', ['open', 'under_review', 'action_required'])]),
             },
         })

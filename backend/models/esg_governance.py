@@ -20,6 +20,9 @@ class ESGPolicy(models.Model):
     document = fields.Binary(attachment=True)
     document_filename = fields.Char()
     effective_date = fields.Date(required=True, default=fields.Date.context_today)
+    review_date = fields.Date(tracking=True)
+    reviewer_id = fields.Many2one("hr.employee", string="Reviewer", tracking=True)
+    last_reviewed_on = fields.Datetime(readonly=True)
     acknowledgement_required = fields.Boolean(default=True, tracking=True)
     assignment_type = fields.Selection([
         ("all", "All Employees"),
@@ -162,6 +165,10 @@ class ESGPolicy(models.Model):
                 continue
             policy.write({"state": "archived", "active": False})
 
+    def action_mark_reviewed(self):
+        self._require_esg_admin()
+        self.write({"last_reviewed_on": fields.Datetime.now()})
+
     def action_send_acknowledgement_reminders(self):
         self._require_esg_admin()
         total = 0
@@ -255,7 +262,10 @@ class ESGAudit(models.Model):
     department_id = fields.Many2one("esg.department", required=True)
     auditor_id = fields.Many2one("hr.employee", required=True)
     audit_date = fields.Date(required=True, default=fields.Date.context_today)
+    due_date = fields.Date(tracking=True)
     findings = fields.Text()
+    evidence = fields.Binary(attachment=True)
+    evidence_filename = fields.Char()
     state = fields.Selection([("under_review", "Under Review"), ("completed", "Completed")], default="under_review", required=True)
     issue_ids = fields.One2many("esg.compliance.issue", "audit_id")
 
@@ -300,11 +310,20 @@ class ESGComplianceIssue(models.Model):
     department_id = fields.Many2one("esg.department", required=True)
     severity = fields.Selection([("low", "Low"), ("medium", "Medium"), ("high", "High"), ("critical", "Critical")], required=True, default="medium", tracking=True)
     description = fields.Html(required=True)
+    evidence = fields.Binary(attachment=True)
+    evidence_filename = fields.Char()
     owner_id = fields.Many2one("hr.employee", required=True, tracking=True)
     due_date = fields.Date(required=True, tracking=True)
-    state = fields.Selection([("open", "Open"), ("resolved", "Resolved")], required=True, default="open", tracking=True)
+    state = fields.Selection([
+        ("open", "Open"),
+        ("under_review", "Under Review"),
+        ("action_required", "Action Required"),
+        ("resolved", "Resolved"),
+        ("rejected", "Rejected"),
+    ], required=True, default="open", tracking=True)
     is_overdue = fields.Boolean(default=False, readonly=True, index=True)
     resolved_on = fields.Datetime(readonly=True)
+    resolution_note = fields.Text()
 
     def _is_esg_admin(self):
         return self.env.su or self.env.is_superuser() or self.env.user.has_group("eco_sphere_esg.group_esg_admin")
@@ -354,7 +373,7 @@ class ESGComplianceIssue(models.Model):
 
     def write(self, values):
         if not self._is_esg_admin():
-            protected = {"state", "resolved_on", "owner_id", "audit_id", "severity", "due_date"}
+            protected = {"state", "resolved_on", "owner_id", "audit_id", "severity", "due_date", "resolution_note"}
             if protected.intersection(values):
                 raise AccessError(_("Only an EcoSphere administrator can review or reassign compliance issues."))
             if any(issue.create_uid != self.env.user for issue in self):
@@ -372,7 +391,7 @@ class ESGComplianceIssue(models.Model):
     def _refresh_overdue_flag(self):
         today = fields.Date.today()
         for issue in self:
-            overdue = issue.state == "open" and bool(issue.due_date and issue.due_date < today)
+            overdue = issue.state in {"open", "under_review", "action_required"} and bool(issue.due_date and issue.due_date < today)
             if issue.is_overdue != overdue:
                 issue.with_context(skip_esg_overdue_refresh=True).write({"is_overdue": overdue})
 
@@ -387,7 +406,31 @@ class ESGComplianceIssue(models.Model):
             raise AccessError(_("Only an EcoSphere administrator can resolve compliance issues."))
         self.write({"state": "resolved", "resolved_on": fields.Datetime.now()})
 
+    def action_review(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can review compliance issues."))
+        self.write({"state": "under_review", "resolved_on": False})
+
+    def action_require_action(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can request action on compliance issues."))
+        self.write({"state": "action_required", "resolved_on": False})
+
+    def action_reject(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can reject compliance issues."))
+        self.write({"state": "rejected", "resolved_on": fields.Datetime.now()})
+
     def action_reopen(self):
         if not self._is_esg_admin():
             raise AccessError(_("Only an EcoSphere administrator can reopen compliance issues."))
         self.write({"state": "open", "resolved_on": False})
+
+    def action_send_owner_reminder(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can send compliance reminders."))
+        total = 0
+        for issue in self.filtered(lambda row: row.state in {"open", "under_review", "action_required"}):
+            issue.message_post(body=_("Reminder sent to %s for compliance issue %s.") % (issue.owner_id.name, issue.display_name))
+            total += 1
+        return total
