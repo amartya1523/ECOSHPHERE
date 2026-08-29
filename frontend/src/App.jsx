@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import LandingPage from './LandingPage';
-import { acknowledgePolicy, archiveDepartment, archiveSocialActivity, createAudit, createChallenge, createComplianceIssue, createResource, createSocialActivity, createTeamMember, deleteResource, exportAuditWorkspace, exportPolicyAcknowledgements, getAuditWorkspace, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSettings, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, remindPolicyAcknowledgements, reviewChallenge, reviewSocialParticipation, runAuditAction, runComplianceIssueAction, runPolicyAction, saveDepartment, saveProfileSettings, saveWorkspaceSettings, signIn, signUp, submitSocialParticipation, updateAudit, updateComplianceIssue, updateResource, updateSocialActivity } from './api';
+import { acknowledgePolicy, archiveDepartment, archiveSocialActivity, askEcoSphereAI, createAudit, createChallenge, createComplianceIssue, createResource, createSocialActivity, createTeamMember, deleteResource, exportAuditWorkspace, exportPolicyAcknowledgements, getAuditWorkspace, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSettings, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, remindPolicyAcknowledgements, reviewChallenge, reviewSocialParticipation, runAuditAction, runComplianceIssueAction, runPolicyAction, saveDepartment, saveProfileSettings, saveWorkspaceSettings, signIn, signUp, submitSocialParticipation, updateAudit, updateComplianceIssue, updateResource, updateSocialActivity } from './api';
 import { AnimatePresence, motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import {
-  ArrowUpRight, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
+  ArrowUpRight, Bell, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
   CloudSun, FileBarChart, Gauge, Leaf, LogOut, Menu, MoreHorizontal, Plus, Search,
-  Settings, ShieldCheck, Sparkles, Trophy, UserPlus, Users, X, Zap
+  SendHorizontal, Settings, ShieldCheck, Sparkles, Trophy, UserPlus, Users, X, Zap
 } from 'lucide-react';
 
 const nav = [
@@ -359,6 +359,99 @@ function SettingsWorkspace({ onNotify }) {
 
 function ReportsWorkspace({ onNotify }) { return <section className="module-workspace"><div className="module-header"><div><span className="eyebrow">REPORTING CENTRE</span><h1>Reports</h1><p>Generate trusted ESG outputs from the records stored in your EcoSphere workspace.</p></div></div><div className="report-grid">{['Environmental report','Social report','Governance report','ESG summary'].map(name=><article key={name} className="report-card"><FileBarChart size={22}/><h3>{name}</h3><p>Use the connected Odoo reporting engine to prepare a formal, export-ready report.</p><button className="text-button" onClick={()=>onNotify(`${name} is prepared from your saved EcoSphere records.`)}>Prepare report <ArrowUpRight size={15}/></button></article>)}</div></section>; }
 
+function AiAssistant({ onNavigate }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [conversationId, setConversationId] = useState(() => `chat-${Date.now()}`);
+  const [messages, setMessages] = useState([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      reply: 'Ask me about scores, carbon, policies, compliance issues, reports, or challenge recommendations. I answer from saved EcoSphere records and show citations when data backs the answer.',
+      citations: [],
+      suggested_actions: [],
+    },
+  ]);
+  const listRef = useRef(null);
+  const examples = [
+    'What is my total ESG score right now?',
+    'What compliance issues are overdue?',
+    'Recommend my next challenge and badge progress.',
+    'Summarize our ESG report.',
+  ];
+
+  useEffect(() => {
+    if (open) listRef.current?.scrollTo({top: listRef.current.scrollHeight, behavior: 'smooth'});
+  }, [messages, open]);
+
+  const send = async (value) => {
+    const question = String(value || input).trim();
+    if (!question || busy) return;
+    setInput('');
+    setMessages(current => [...current, {id: `u-${Date.now()}`, role: 'user', reply: question, citations: [], suggested_actions: []}]);
+    setBusy(true);
+    try {
+      const answer = await askEcoSphereAI(question, conversationId);
+      setConversationId(answer.conversation_id || conversationId);
+      setMessages(current => [...current, {id: `a-${Date.now()}`, role: 'assistant', ...answer}]);
+    } catch (error) {
+      setMessages(current => [...current, {id: `e-${Date.now()}`, role: 'assistant', reply: error.message || 'EcoSphere AI could not answer right now.', citations: [], suggested_actions: []}]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={`ai-assistant ${open ? 'open' : ''}`}>
+      <button className="ai-fab" onClick={() => setOpen(value => !value)} title="EcoSphere AI assistant">
+        {open ? <X size={19}/> : <Bot size={20}/>}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.section
+            className="ai-panel"
+            initial={{opacity: 0, y: 18, scale: .96}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            exit={{opacity: 0, y: 18, scale: .96}}
+            transition={{type: 'spring', stiffness: 260, damping: 24}}
+          >
+            <div className="ai-head">
+              <div className="mini-mark"><Bot size={18}/></div>
+              <div><strong>EcoSphere AI</strong><span>Grounded in Odoo records</span></div>
+            </div>
+            <div className="ai-examples">
+              {examples.map(example => <button key={example} onClick={() => send(example)} disabled={busy}>{example}</button>)}
+            </div>
+            <div className="ai-messages" ref={listRef}>
+              {messages.map(message => (
+                <article className={`ai-message ${message.role}`} key={message.id}>
+                  <p>{message.reply}</p>
+                  {!!message.citations?.length && (
+                    <div className="ai-citations">
+                      {message.citations.map((citation, index) => <span key={`${citation.type}-${citation.id}-${index}`} title={citation.note}>{citation.label}{citation.note ? ` · ${citation.note}` : ''}</span>)}
+                    </div>
+                  )}
+                  {!!message.suggested_actions?.length && (
+                    <div className="ai-actions">
+                      {message.suggested_actions.map((action, index) => <button key={`${action.target}-${index}`} onClick={() => action.target && onNavigate(action.target)}>{action.label || action.target} <ArrowUpRight size={12}/></button>)}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {busy && <article className="ai-message assistant"><p>Checking the relevant EcoSphere records...</p></article>}
+            </div>
+            <form className="ai-compose" onSubmit={event => { event.preventDefault(); send(); }}>
+              <input value={input} onChange={event => setInput(event.target.value)} placeholder="Ask about ESG data" />
+              <button disabled={busy || !input.trim()} title="Send"><SendHorizontal size={17}/></button>
+            </form>
+          </motion.section>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function TeamAccess({ onNotify }) {
  const [team,setTeam]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [saving,setSaving]=useState(false);
  const load=async()=>{setLoading(true);try{const data=await getTeam();setTeam(data.members);setError('');}catch(e){setError(e.message);}finally{setLoading(false);}}; useEffect(()=>{load();},[]);
@@ -667,6 +760,7 @@ function Dashboard({ onLogout, sessionUser }) {
             : ['Gamification','Challenges','Participation','Badges & rewards','Leaderboard'].includes(active) ? <PlayableGamificationWorkspace onNotify={notify} active={active}/>
             : <ModuleWorkspace label={active} onNotify={notify}/>}
         </div>
+        <AiAssistant onNavigate={setActive}/>
         {notice && <motion.div className="toast" initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:1,y:0}}>{notice}</motion.div>}
       </main>
     </div>

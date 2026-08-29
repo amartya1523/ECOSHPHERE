@@ -1,6 +1,7 @@
 import base64
 import csv
 import io
+from datetime import timedelta
 
 from odoo import http, _, fields
 from odoo.http import request
@@ -1061,6 +1062,286 @@ class EcoSphereAPI(http.Controller):
             return {'message': _("Participation approved and points awarded.")}
         row.action_reject()
         return {'message': _("Participation rejected. The employee can update and resubmit evidence.")}
+
+    def _ai_is_manager(self):
+        return request.env.user.has_group('eco_sphere_esg.group_esg_admin')
+
+    def _ai_departments(self):
+        Department = request.env['esg.department'].sudo()
+        if self._ai_is_manager():
+            return Department.search([('company_id', '=', request.env.company.id)])
+        employee = request.env.user.employee_id
+        if employee and employee.esg_department_id:
+            return employee.esg_department_id
+        return Department.browse()
+
+    def _ai_department_domain(self, field_name='department_id'):
+        departments = self._ai_departments()
+        if not departments:
+            return [(field_name, '=', 0)]
+        return [(field_name, 'child_of', departments.ids)]
+
+    def _ai_citation(self, source_type, record, label=None, note=None):
+        return {
+            'type': source_type,
+            'id': record.id,
+            'label': label or record.display_name,
+            'note': note or '',
+        }
+
+    def _ai_latest_scores(self):
+        Score = request.env['esg.department.score'].sudo()
+        Score.action_recalculate_all()
+        latest = {}
+        for score in Score.search(self._ai_department_domain(), order='score_date desc, id desc'):
+            latest.setdefault(score.department_id.id, score)
+        return list(latest.values())
+
+    def _ai_score_answer(self):
+        rows = self._ai_latest_scores()
+        if not rows:
+            return {
+                'reply': _("I could not find a Department Score record for your accessible department yet. Add ESG data or run score recalculation first."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open Environmental"), 'target': 'Environmental'}],
+            }
+        average = lambda field: round(sum(getattr(row, field) for row in rows) / len(rows), 1)
+        overall = average('total_score')
+        env = average('environmental_score')
+        social = average('social_score')
+        gov = average('governance_score')
+        scope = _("your accessible departments") if self._ai_is_manager() else rows[0].department_id.name
+        return {
+            'reply': _("The current overall ESG score for %(scope)s is %(overall)s/100. Environmental is %(env)s/100, Social is %(social)s/100, and Governance is %(gov)s/100. These values are calculated from the latest Department Score record for each accessible department.") % {
+                'scope': scope, 'overall': overall, 'env': env, 'social': social, 'gov': gov,
+            },
+            'citations': [self._ai_citation('score', row, _("%s score") % row.department_id.name, str(row.score_date)) for row in rows[:5]],
+            'suggested_actions': [{'label': _("Open dashboard"), 'target': 'Overview'}],
+        }
+
+    def _ai_carbon_answer(self):
+        today = fields.Date.context_today(request.env.user)
+        start = today - timedelta(days=90)
+        Carbon = request.env['esg.carbon.transaction'].sudo()
+        domain = self._ai_department_domain() + [('transaction_date', '>=', start), ('transaction_date', '<=', today)]
+        rows = Carbon.search(domain, order='transaction_date desc, id desc', limit=25)
+        total = round(sum(rows.mapped('co2e_kg')), 2)
+        if not rows:
+            return {
+                'reply': _("I could not find carbon transactions in the last 90 days for your accessible department scope."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Log carbon data"), 'target': 'Carbon transactions'}],
+            }
+        return {
+            'reply': _("In the last 90 days, your accessible scope has %(count)s carbon transaction(s) totaling %(total)s kg CO2e. The newest entry is %(latest)s on %(date)s.") % {
+                'count': len(rows), 'total': total, 'latest': rows[0].display_name, 'date': rows[0].transaction_date,
+            },
+            'citations': [self._ai_citation('carbon', row, row.display_name, _("%(kg)s kg CO2e on %(date)s") % {'kg': round(row.co2e_kg, 2), 'date': row.transaction_date}) for row in rows[:5]],
+            'suggested_actions': [{'label': _("Open carbon ledger"), 'target': 'Carbon transactions'}],
+        }
+
+    def _ai_compliance_answer(self, overdue_only=False):
+        Issue = request.env['esg.compliance.issue'].sudo()
+        domain = self._ai_department_domain()
+        if overdue_only:
+            domain += [('is_overdue', '=', True), ('state', '=', 'open')]
+        rows = Issue.search(domain, order='is_overdue desc, due_date asc, id desc', limit=20)
+        if not rows:
+            detail = _("overdue open compliance issues") if overdue_only else _("compliance issues")
+            return {
+                'reply': _("I could not find any %(detail)s in your accessible department scope.") % {'detail': detail},
+                'citations': [],
+                'suggested_actions': [{'label': _("Open compliance issues"), 'target': 'Compliance issues'}],
+            }
+        overdue_count = len(rows.filtered(lambda issue: issue.is_overdue and issue.state == 'open'))
+        high_count = len(rows.filtered(lambda issue: issue.severity in {'high', 'critical'} and issue.state == 'open'))
+        lead = _("I found %(count)s overdue open compliance issue(s).") % {'count': overdue_count} if overdue_only else _("I found %(count)s compliance issue(s), including %(overdue)s overdue and %(high)s high/critical open issue(s).") % {'count': len(rows), 'overdue': overdue_count, 'high': high_count}
+        examples = '; '.join("%s (%s, due %s)" % (issue.name, issue.severity, issue.due_date) for issue in rows[:3])
+        return {
+            'reply': _("%(lead)s Key records: %(examples)s.") % {'lead': lead, 'examples': examples},
+            'citations': [self._ai_citation('compliance', row, row.name, _("Severity %(severity)s, due %(date)s") % {'severity': row.severity, 'date': row.due_date}) for row in rows[:5]],
+            'suggested_actions': [{'label': _("Open compliance issues"), 'target': 'Compliance issues'}],
+        }
+
+    def _ai_policy_answer(self, message):
+        words = [word.strip(".,?!:;()[]{}").lower() for word in (message or '').split()]
+        terms = [word for word in words if len(word) > 3 and word not in {'policy', 'policies', 'about', 'what', 'tell', 'explain', 'latest'}]
+        Policy = request.env['esg.policy'].sudo()
+        domain = [('state', 'in', ['published', 'active', 'effective'])]
+        if not self._ai_is_manager():
+            employee = request.env.user.employee_id
+            clauses = [('assignment_type', '=', 'all')]
+            if employee:
+                clauses.append(('assignment_employee_id', '=', employee.id))
+                if employee.esg_department_id:
+                    clauses.append(('assignment_department_id', 'child_of', employee.esg_department_id.ids))
+            if len(clauses) == 1:
+                domain += clauses
+            elif len(clauses) == 2:
+                domain += ['|'] + clauses
+            else:
+                domain += ['|', '|'] + clauses
+        rows = Policy.search(domain, order='effective_date desc, id desc', limit=30)
+        if terms:
+            rows = rows.filtered(lambda policy: any(term in ("%s %s" % (policy.name, html2plaintext(policy.content or ''))).lower() for term in terms))
+        if not rows:
+            return {
+                'reply': _("I could not find an active policy matching that question in your accessible policy set."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open policies"), 'target': 'Policies'}],
+            }
+        policy = rows[0]
+        text = html2plaintext(policy.content or '').strip()
+        excerpt = text[:280] + ('...' if len(text) > 280 else '')
+        return {
+            'reply': _("The closest policy is %(name)s (%(version)s), effective %(date)s. Relevant section: %(excerpt)s") % {
+                'name': policy.name, 'version': policy.version, 'date': policy.effective_date, 'excerpt': excerpt or _("No policy text has been added."),
+            },
+            'citations': [self._ai_citation('policy', policy, _("%s %s") % (policy.name, policy.version), str(policy.effective_date))],
+            'suggested_actions': [{'label': _("Open policies"), 'target': 'Policies'}],
+        }
+
+    def _ai_report_summary(self):
+        rows = self._ai_latest_scores()
+        issues = request.env['esg.compliance.issue'].sudo().search_count(self._ai_department_domain() + [('state', '=', 'open')])
+        carbon_count = request.env['esg.carbon.transaction'].sudo().search_count(self._ai_department_domain())
+        if not rows:
+            return {
+                'reply': _("I cannot summarize the ESG report yet because there are no Department Score records in your accessible scope."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open reports"), 'target': 'Reports'}],
+            }
+        average = lambda field: round(sum(getattr(row, field) for row in rows) / len(rows), 1)
+        reply = _("Latest ESG summary: overall score is %(overall)s/100 across %(departments)s department score record(s). Environmental averages %(env)s/100 with %(carbon)s saved carbon transaction(s). Governance averages %(gov)s/100 with %(issues)s open compliance issue(s). Social averages %(social)s/100 and should improve as CSR participation records are approved.") % {
+            'overall': average('total_score'), 'departments': len(rows), 'env': average('environmental_score'),
+            'carbon': carbon_count, 'gov': average('governance_score'), 'issues': issues, 'social': average('social_score'),
+        }
+        return {
+            'reply': reply,
+            'citations': [self._ai_citation('report', row, _("%s score") % row.department_id.name, str(row.score_date)) for row in rows[:5]],
+            'suggested_actions': [{'label': _("Open reports"), 'target': 'Reports'}],
+        }
+
+    def _ai_gamification_answer(self):
+        employee = request.env.user.employee_id
+        if not employee:
+            return {
+                'reply': _("Your account is an administrator account without an employee profile, so I cannot recommend a personal challenge. Use Team access to create or inspect employee accounts."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open challenges"), 'target': 'Challenges'}],
+            }
+        Participation = request.env['esg.challenge.participation'].sudo()
+        joined_ids = Participation.search([('employee_id', '=', employee.id)]).mapped('challenge_id').ids
+        challenge = request.env['esg.challenge'].sudo().search([('state', '=', 'active'), ('is_template', '=', False), ('id', 'not in', joined_ids)], order='deadline asc, xp_value desc', limit=1)
+        approved = Participation.search([('employee_id', '=', employee.id), ('state', '=', 'approved')])
+        xp = sum(approved.mapped('xp_awarded'))
+        completed = len(approved)
+        badge = request.env['esg.badge'].sudo().search([], order='minimum_xp asc, minimum_challenges asc').filtered(lambda item: xp < item.minimum_xp or completed < item.minimum_challenges)[:1]
+        if not challenge and not badge:
+            return {
+                'reply': _("You have no new active challenge recommendation right now, and every configured badge appears to be within reach or already satisfied by your approved activity."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open challenges"), 'target': 'Challenges'}],
+            }
+        pieces = []
+        citations = []
+        if challenge:
+            pieces.append(_("Your best next challenge is %(name)s for %(xp)s XP, due %(date)s.") % {'name': challenge.name, 'xp': challenge.xp_value, 'date': challenge.deadline})
+            citations.append(self._ai_citation('challenge', challenge, challenge.name, _("%s XP") % challenge.xp_value))
+        if badge:
+            remaining_xp = max(int(badge.minimum_xp - xp), 0)
+            remaining_challenges = max(int(badge.minimum_challenges - completed), 0)
+            pieces.append(_("Nearest badge: %(badge)s. You need %(xp)s more XP and %(count)s more approved challenge(s).") % {'badge': badge.name, 'xp': remaining_xp, 'count': remaining_challenges})
+            citations.append(self._ai_citation('badge', badge, badge.name, _("Rule: %(xp)s XP, %(count)s challenges") % {'xp': badge.minimum_xp, 'count': badge.minimum_challenges}))
+        return {'reply': ' '.join(pieces), 'citations': citations, 'suggested_actions': [{'label': _("Open challenges"), 'target': 'Challenges'}]}
+
+    def _ai_anomaly_answer(self):
+        rows = request.env['esg.department.score'].sudo().search(self._ai_department_domain(), order='department_id, score_date desc, id desc', limit=200)
+        by_department = {}
+        for row in rows:
+            by_department.setdefault(row.department_id.id, []).append(row)
+        flags = []
+        for department_rows in by_department.values():
+            if len(department_rows) < 3:
+                continue
+            latest, previous = department_rows[0], department_rows[1]
+            delta = latest.environmental_score - previous.environmental_score
+            history = [department_rows[index].environmental_score - department_rows[index + 1].environmental_score for index in range(1, min(len(department_rows) - 1, 6))]
+            baseline = sum(abs(value) for value in history) / len(history) if history else 0
+            if delta >= max(20, baseline * 2.5):
+                flags.append((latest, previous, round(delta, 1), round(baseline, 1)))
+        if not flags:
+            return {
+                'reply': _("I did not find an environmental-score anomaly in your accessible departments. I need at least three score dates per department and flag only unusually fast improvements."),
+                'citations': [self._ai_citation('score', row, _("%s score") % row.department_id.name, str(row.score_date)) for row in rows[:3]],
+                'suggested_actions': [{'label': _("Open dashboard"), 'target': 'Overview'}],
+            }
+        latest, previous, delta, baseline = flags[0]
+        return {
+            'reply': _("Possible anomaly: %(department)s improved from %(previous)s/100 to %(latest)s/100, a +%(delta)s point jump versus a trailing average movement of %(baseline)s points. This deserves a quick audit before using it in external reporting.") % {
+                'department': latest.department_id.name, 'previous': round(previous.environmental_score, 1),
+                'latest': round(latest.environmental_score, 1), 'delta': delta, 'baseline': baseline,
+            },
+            'citations': [
+                self._ai_citation('score', latest, _("%s latest score") % latest.department_id.name, str(latest.score_date)),
+                self._ai_citation('score', previous, _("%s previous score") % previous.department_id.name, str(previous.score_date)),
+            ],
+            'suggested_actions': [{'label': _("Open audits"), 'target': 'Audits'}],
+        }
+
+    def _ai_overview_answer(self):
+        score = self._ai_score_answer()
+        nudges = []
+        overdue = request.env['esg.compliance.issue'].sudo().search(self._ai_department_domain() + [('state', '=', 'open'), ('is_overdue', '=', True)], limit=1)
+        if overdue:
+            nudges.append(_("Review overdue compliance issue: %s.") % overdue.name)
+        if request.env.user.employee_id:
+            open_challenges = request.env['esg.challenge'].sudo().search_count([('state', '=', 'active'), ('is_template', '=', False)])
+            if open_challenges:
+                nudges.append(_("There are %s active challenge(s) available for employees.") % open_challenges)
+        if nudges:
+            score['reply'] += ' ' + _('Proactive nudge: ') + ' '.join(nudges)
+        return score
+
+    @http.route('/ecosphere/api/ai/chat', type='json', auth='user', methods=['POST'], csrf=False)
+    def ai_chat(self, message=None, conversation_id=None):
+        """Grounded, typed-tool chatbot endpoint. It never executes free-form SQL."""
+        prompt = (message or '').strip()
+        if not prompt:
+            raise ValidationError(_("Ask EcoSphere AI a question first."))
+        lowered = prompt.lower()
+        if any(term in lowered for term in ['other department', 'another department']) and not self._ai_is_manager():
+            return {
+                'reply': _("I cannot answer for another department. I can only use records assigned to your own department and policies visible to you."),
+                'citations': [],
+                'suggested_actions': [{'label': _("Open my dashboard"), 'target': 'Overview'}],
+                'conversation_id': conversation_id or 'local',
+            }
+        if any(term in lowered for term in ['anomaly', 'greenwashing', 'suspicious', 'implausible']):
+            payload = self._ai_anomaly_answer()
+        elif any(term in lowered for term in ['policy', 'policies', 'travel', 'code of ethics', 'anti-corruption', 'compliance policy']):
+            payload = self._ai_policy_answer(prompt)
+        elif any(term in lowered for term in ['report', 'summary', 'summarize', 'executive']):
+            payload = self._ai_report_summary()
+        elif any(term in lowered for term in ['challenge', 'badge', 'reward', 'xp', 'gamification', 'recommend']):
+            payload = self._ai_gamification_answer()
+        elif any(term in lowered for term in ['overdue', 'issue', 'issues', 'risk', 'compliance']):
+            payload = self._ai_compliance_answer(overdue_only='overdue' in lowered)
+        elif any(term in lowered for term in ['carbon', 'emission', 'co2', 'co2e', 'ledger']):
+            payload = self._ai_carbon_answer()
+        elif any(term in lowered for term in ['score', 'kpi', 'esg', 'environmental', 'social', 'governance']):
+            payload = self._ai_score_answer()
+        else:
+            payload = self._ai_overview_answer()
+        payload.update({
+            'conversation_id': conversation_id or 'local',
+            'guardrails': [
+                _("Answers use fixed Odoo tool queries only."),
+                _("Numeric claims include citations when matching records exist."),
+                _("Employee answers are scoped to the signed-in employee department."),
+            ],
+        })
+        return payload
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
