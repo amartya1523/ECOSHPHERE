@@ -49,3 +49,10 @@ export const joinChallenge = (id) => rpc(`/ecosphere/api/gamification/challenges
 export const publishChallengeTemplate = (id, values) => rpc(`/ecosphere/api/gamification/templates/${id}/publish`, values);
 export const playChallenge = (id, payload) => rpc(`/ecosphere/api/gamification/participations/${id}/play`, {payload});
 export const reviewChallenge = (id, approved, note) => rpc(`/ecosphere/api/gamification/participations/${id}/review`, {approved, note});
+export const getSocial = () => rpc('/ecosphere/api/social');
+export const createSocialActivity = values => rpc('/ecosphere/api/social/activities/create', values);
+export const updateSocialActivity = (id, values) => rpc(`/ecosphere/api/social/activities/${id}/update`, {values});
+export const archiveSocialActivity = id => rpc(`/ecosphere/api/social/activities/${id}/archive`);
+export const joinSocialActivity = id => rpc(`/ecosphere/api/social/activities/${id}/join`);
+export const submitSocialParticipation = (id, proof, filename) => rpc(`/ecosphere/api/social/participations/${id}/submit`, {proof, filename});
+export const reviewSocialParticipation = (id, approved, note) => rpc(`/ecosphere/api/social/participations/${id}/review`, {approved, note});

@@ -68,6 +68,39 @@ class EcoSphereAPI(http.Controller):
         if not request.env.user.has_group('eco_sphere_esg.group_esg_manager'):
             raise ValidationError(_("Only an EcoSphere administrator can manage employee access."))
 
+    def _require_managed_resource(self, slug):
+        """Keep workflow-owned data off the generic CRUD endpoint.
+
+        CSR participation must always go through the Social endpoints below: they
+        attach the signed-in employee, validate evidence and enforce the review
+        state machine. Diversity entries are manager-maintained organisation data.
+        """
+        if slug == 'employee-participation':
+            raise ValidationError(_("Use the Social workspace to join an activity or submit evidence."))
+        if slug == 'diversity-dashboard':
+            self._require_manager()
+
+    def _social_department(self, department_id=None, department_name=None):
+        """Resolve an existing department or create a named one for a new activity."""
+        Department = request.env['esg.department']
+        if department_id:
+            department = Department.browse(int(department_id)).exists()
+            if department:
+                return department
+            raise ValidationError(_("Selected department no longer exists."))
+        name = (department_name or '').strip()
+        if not name:
+            raise ValidationError(_("Choose or enter the department responsible for this activity."))
+        department = Department.search([('name', '=ilike', name)], limit=1)
+        if department:
+            return department
+        base_code = ''.join(character for character in name.upper() if character.isalnum())[:8] or 'DEPT'
+        code, counter = base_code, 2
+        while Department.search_count([('code', '=', code)]):
+            code = '%s%s' % (base_code[:max(1, 10 - len(str(counter)))], counter)
+            counter += 1
+        return Department.create({'name': name, 'code': code})
+
     @staticmethod
     def _player_config(challenge):
         config = challenge.game_config or {}
@@ -77,11 +110,14 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/resources/<string:slug>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_list(self, slug, limit=100, query=None):
+        if slug == 'employee-participation':
+            self._require_managed_resource(slug)
         records, allowed = self._resource(slug)
         records.check_access_rights('read')
         domain = [('display_name', 'ilike', query)] if query else []
         rows = records.search_read(domain, list(allowed), limit=min(max(int(limit or 100), 1), 200), order='id desc')
-        return {'records': rows, 'fields': self._field_schema(records, allowed), 'can_create': records.check_access_rights('create', raise_exception=False), 'can_write': records.check_access_rights('write', raise_exception=False), 'can_delete': records.check_access_rights('unlink', raise_exception=False)}
+        managed = slug == 'diversity-dashboard' and not request.env.user.has_group('eco_sphere_esg.group_esg_manager')
+        return {'records': rows, 'fields': self._field_schema(records, allowed), 'can_create': False if managed else records.check_access_rights('create', raise_exception=False), 'can_write': False if managed else records.check_access_rights('write', raise_exception=False), 'can_delete': False if managed else records.check_access_rights('unlink', raise_exception=False)}
 
     @http.route('/ecosphere/api/resources/<string:slug>/options/<string:field_name>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_options(self, slug, field_name, query=None):
@@ -95,6 +131,7 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/resources/<string:slug>/create', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_create(self, slug, values):
+        self._require_managed_resource(slug)
         records, allowed = self._resource(slug)
         records.check_access_rights('create')
         record = records.create(self._clean_values(records, allowed, values))
@@ -102,6 +139,7 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_update(self, slug, record_id, values):
+        self._require_managed_resource(slug)
         records, allowed = self._resource(slug)
         record = records.browse(record_id).exists()
         if not record:
@@ -113,6 +151,7 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/delete', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_delete(self, slug, record_id):
+        self._require_managed_resource(slug)
         records, _allowed = self._resource(slug)
         record = records.browse(record_id).exists()
         if not record:
@@ -381,6 +420,129 @@ class EcoSphereAPI(http.Controller):
             return {'message': _("Submission approved and XP awarded.")}
         participation.write({'state': 'rejected', 'eligibility_status': 'not_eligible', 'verification_reason': (note or _("Not eligible for promotion: the evidence does not meet this challenge's criteria."))[:500]})
         return {'message': _("Submission marked not eligible.")}
+
+    def _social_activity_row(self, activity, participation=False):
+        return {
+            'id': activity.id, 'name': activity.name, 'description': activity.description or '',
+            'activity_date': str(activity.activity_date or ''), 'department': activity.department_id.name,
+            'department_id': activity.department_id.id, 'category': activity.category_id.name or '',
+            'category_id': activity.category_id.id or False, 'points': activity.points,
+            'capacity': activity.capacity, 'active': activity.active,
+            'evidence_required': activity.evidence_required, 'participants': activity.participant_count,
+            'participation': participation and {
+                'id': participation.id, 'state': participation.state, 'proof_filename': participation.proof_filename or '',
+                'approval_note': participation.approval_note or '', 'completion_date': str(participation.completion_date or ''),
+            } or False,
+        }
+
+    @http.route('/ecosphere/api/social', type='json', auth='user', methods=['POST'], csrf=False)
+    def social(self):
+        """Role-safe social-impact feed. Employees only receive their own submissions."""
+        is_manager = request.env.user.has_group('eco_sphere_esg.group_esg_manager')
+        employee = request.env.user.employee_id
+        Activity = request.env['esg.csr.activity']
+        Participation = request.env['esg.csr.participation']
+        activities = Activity.search([] if is_manager else [('active', '=', True)], order='activity_date asc, id desc')
+        own = {row.activity_id.id: row for row in Participation.search([('employee_id', '=', employee.id)])} if employee else {}
+        activity_rows = [self._social_activity_row(row, own.get(row.id)) for row in activities]
+        submissions = []
+        if is_manager:
+            for row in Participation.sudo().search([], order='create_date desc', limit=100):
+                submissions.append({'id': row.id, 'employee': row.employee_id.name, 'activity': row.activity_id.name, 'state': row.state, 'proof': row.proof.decode() if row.proof else False, 'proof_filename': row.proof_filename or '', 'points': row.points_earned, 'note': row.approval_note or '', 'submitted_at': str(row.submitted_at or '')})
+        return {
+            'is_manager': is_manager, 'can_participate': bool(employee), 'activities': activity_rows,
+            'my_participations': [self._social_activity_row(row.activity_id, row) for row in own.values()],
+            'submissions': submissions,
+            'metrics': {'activities': len(activity_rows), 'joined': len(own), 'pending': len([row for row in own.values() if row.state == 'submitted']), 'approved_points': sum(row.points_earned for row in own.values() if row.state == 'approved')},
+            'departments': request.env['esg.department'].name_search('', limit=100) if is_manager else [],
+            'categories': [(row['id'], row['name']) for row in request.env['esg.category'].search_read([('category_type', '=', 'csr')], ['name'])] if is_manager else [],
+        }
+
+    @http.route('/ecosphere/api/social/activities/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_activity_create(self, name, description, activity_date, department_id=None, department_name=None, points=0, capacity=0, evidence_required=False, category_id=None, active=True):
+        self._require_manager()
+        if len((name or '').strip()) < 2 or not activity_date:
+            raise ValidationError(_("Name, activity date, and department are required."))
+        department = self._social_department(department_id, department_name)
+        activity = request.env['esg.csr.activity'].create({'name': name.strip(), 'description': (description or '').strip(), 'activity_date': activity_date, 'department_id': department.id, 'category_id': int(category_id) if category_id else False, 'points': max(int(points or 0), 0), 'capacity': max(int(capacity or 0), 0), 'evidence_required': bool(evidence_required), 'active': bool(active)})
+        return {'id': activity.id, 'message': _("CSR activity saved.")}
+
+    @http.route('/ecosphere/api/social/activities/<int:activity_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_activity_update(self, activity_id, values=None):
+        self._require_manager()
+        activity = request.env['esg.csr.activity'].browse(activity_id).exists()
+        if not activity:
+            raise ValidationError(_("This CSR activity no longer exists."))
+        values = values or {}
+        allowed = {'name', 'description', 'activity_date', 'department_id', 'category_id', 'points', 'capacity', 'evidence_required', 'active'}
+        cleaned = {key: value for key, value in values.items() if key in allowed}
+        if 'department_name' in values:
+            cleaned['department_id'] = self._social_department(cleaned.get('department_id'), values['department_name']).id
+        for key in ('department_id', 'category_id', 'points', 'capacity'):
+            if key in cleaned:
+                cleaned[key] = int(cleaned[key]) if cleaned[key] not in ('', None, False) else False
+        activity.write(cleaned)
+        return {'id': activity.id, 'message': _("CSR activity updated.")}
+
+    @http.route('/ecosphere/api/social/activities/<int:activity_id>/archive', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_activity_archive(self, activity_id):
+        self._require_manager()
+        activity = request.env['esg.csr.activity'].browse(activity_id).exists()
+        if not activity:
+            raise ValidationError(_("This CSR activity no longer exists."))
+        activity.write({'active': False})
+        return {'message': _("CSR activity archived. It is no longer visible to employees.")}
+
+    @http.route('/ecosphere/api/social/activities/<int:activity_id>/join', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_activity_join(self, activity_id):
+        employee = request.env.user.employee_id
+        if not employee:
+            raise ValidationError(_("Your employee profile is not ready. Ask an administrator to create employee access."))
+        activity = request.env['esg.csr.activity'].browse(activity_id).exists()
+        if not activity or not activity.active:
+            raise ValidationError(_("This activity is not currently open for participation."))
+        Participation = request.env['esg.csr.participation']
+        if activity.capacity and activity.participant_count >= activity.capacity:
+            raise ValidationError(_("This activity has reached its participation capacity."))
+        if Participation.search_count([('employee_id', '=', employee.id), ('activity_id', '=', activity.id)]):
+            raise ValidationError(_("You have already joined this activity."))
+        row = Participation.create({'employee_id': employee.id, 'activity_id': activity.id})
+        return {'id': row.id, 'message': _("You joined the activity. Submit your completion when ready.")}
+
+    @http.route('/ecosphere/api/social/participations/<int:participation_id>/submit', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_participation_submit(self, participation_id, proof=None, filename=None):
+        employee = request.env.user.employee_id
+        row = request.env['esg.csr.participation'].browse(participation_id).exists()
+        if not row or row.employee_id != employee:
+            raise ValidationError(_("You can only submit your own participation."))
+        if row.state == 'approved':
+            raise ValidationError(_("This participation has already been approved."))
+        if row.activity_id.evidence_required:
+            try:
+                decoded = base64.b64decode(proof or '', validate=True)
+            except Exception:
+                raise ValidationError(_("Upload a valid JPG, PNG, or PDF proof file."))
+            if not decoded or len(decoded) > 5 * 1024 * 1024:
+                raise ValidationError(_("Proof files must be up to 5 MB."))
+            suffix = (filename or '').lower().rsplit('.', 1)[-1]
+            if suffix not in {'jpg', 'jpeg', 'png', 'pdf'}:
+                raise ValidationError(_("Use a JPG, PNG, or PDF proof file."))
+            row.write({'proof': proof, 'proof_filename': (filename or 'proof-file')[:255]})
+        row.action_submit()
+        return {'message': _("Completion submitted for administrator approval.")}
+
+    @http.route('/ecosphere/api/social/participations/<int:participation_id>/review', type='json', auth='user', methods=['POST'], csrf=False)
+    def social_participation_review(self, participation_id, approved, note=None):
+        self._require_manager()
+        row = request.env['esg.csr.participation'].browse(participation_id).exists()
+        if not row or row.state != 'submitted':
+            raise ValidationError(_("This participation is not awaiting review."))
+        row.write({'approval_note': (note or '').strip()[:500]})
+        if approved:
+            row.action_approve()
+            return {'message': _("Participation approved and points awarded.")}
+        row.action_reject()
+        return {'message': _("Participation rejected. The employee can update and resubmit evidence.")}
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):

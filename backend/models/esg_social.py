@@ -15,6 +15,7 @@ class ESGCSRActivity(models.Model):
     department_id = fields.Many2one("esg.department", required=True, tracking=True)
     evidence_required = fields.Boolean(default=False)
     points = fields.Integer(default=0)
+    capacity = fields.Integer(default=0, help="Zero means that participation is unlimited.")
     active = fields.Boolean(default=True)
     participation_ids = fields.One2many("esg.csr.participation", "activity_id")
     participant_count = fields.Integer(compute="_compute_participant_count")
@@ -22,6 +23,12 @@ class ESGCSRActivity(models.Model):
     def _compute_participant_count(self):
         for activity in self:
             activity.participant_count = len(activity.participation_ids)
+
+    @api.constrains("capacity", "points")
+    def _check_nonnegative_values(self):
+        for activity in self:
+            if activity.capacity < 0 or activity.points < 0:
+                raise ValidationError(_("Capacity and points cannot be negative."))
 
 
 class ESGCSRParticipation(models.Model):
@@ -36,6 +43,10 @@ class ESGCSRParticipation(models.Model):
     activity_id = fields.Many2one("esg.csr.activity", required=True, ondelete="cascade")
     proof = fields.Binary(attachment=True)
     proof_filename = fields.Char()
+    submitted_at = fields.Datetime(readonly=True)
+    reviewed_at = fields.Datetime(readonly=True)
+    reviewed_by_id = fields.Many2one("res.users", readonly=True)
+    approval_note = fields.Text()
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -74,13 +85,13 @@ class ESGCSRParticipation(models.Model):
                 )
 
     def action_submit(self):
-        self.write({"state": "submitted"})
+        self.write({"state": "submitted", "submitted_at": fields.Datetime.now()})
 
     def action_approve(self):
         params = self.env["ir.config_parameter"].sudo()
         notify = params.get_param("eco_sphere_esg.csr_notifications", "True") == "True"
         for participation in self:
-            participation.state = "approved"
+            participation.write({"state": "approved", "reviewed_at": fields.Datetime.now(), "reviewed_by_id": self.env.user.id})
             if notify:
                 participation.message_post(
                     body=_(
@@ -91,7 +102,7 @@ class ESGCSRParticipation(models.Model):
     def action_reject(self):
         params = self.env["ir.config_parameter"].sudo()
         notify = params.get_param("eco_sphere_esg.csr_notifications", "True") == "True"
-        self.write({"state": "rejected"})
+        self.write({"state": "rejected", "reviewed_at": fields.Datetime.now(), "reviewed_by_id": self.env.user.id})
         if notify:
             for participation in self:
                 participation.message_post(
