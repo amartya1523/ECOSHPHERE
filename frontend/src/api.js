@@ -1,5 +1,5 @@
 const DEFAULT_BASE = import.meta.env.VITE_ODOO_BASE || '/odoo';
-const DEFAULT_ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere-db';
+const DEFAULT_ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere_db';
 
 let clientConfigPromise;
 
