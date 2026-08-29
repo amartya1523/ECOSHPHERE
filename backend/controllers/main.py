@@ -245,15 +245,48 @@ class EcoSphereAPI(http.Controller):
         return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'rewards': rewards, 'leaderboard': leaderboard, 'activity': activity, 'templates': templates, 'reviews': reviews}
 
     @http.route('/ecosphere/api/gamification/challenges/create', type='json', auth='user', methods=['POST'], csrf=False)
-    def gamification_create_challenge(self, name, description, xp_value, difficulty, deadline, state='active'):
+    def gamification_create_challenge(self, name, description, xp_value, difficulty, deadline, state='active', challenge_type='action', game_config=None):
         self._require_manager()
         if not (name or '').strip() or not (description or '').strip() or not deadline:
             raise ValidationError(_("Name, description, and deadline are required."))
-        if state not in {'draft', 'active'} or difficulty not in {'easy', 'medium', 'hard'}:
-            raise ValidationError(_("Invalid challenge status or difficulty."))
+        allowed_types = {'quiz', 'scenario', 'checklist', 'photo', 'action'}
+        if state not in {'draft', 'active'} or difficulty not in {'easy', 'medium', 'hard'} or challenge_type not in allowed_types:
+            raise ValidationError(_("Invalid challenge settings."))
+        config = game_config if isinstance(game_config, dict) else {}
+        if challenge_type in {'quiz', 'scenario'}:
+            questions = config.get('questions', [])
+            if not isinstance(questions, list) or not questions or len(questions) > 12:
+                raise ValidationError(_("Add between 1 and 12 questions."))
+            cleaned_questions = []
+            for question in questions:
+                prompt = str(question.get('prompt') or '').strip()
+                options = [str(value).strip() for value in question.get('options', []) if str(value).strip()]
+                try:
+                    answer = int(question.get('answer'))
+                except (TypeError, ValueError):
+                    answer = -1
+                if not prompt or len(options) < 2 or answer < 0 or answer >= len(options):
+                    raise ValidationError(_("Every question needs a prompt, at least two options, and one correct answer."))
+                cleaned_questions.append({'prompt': prompt[:500], 'options': options[:6], 'answer': answer})
+            try:
+                pass_score = int(config.get('pass_score', 80))
+            except (TypeError, ValueError):
+                pass_score = 80
+            if not 1 <= pass_score <= 100:
+                raise ValidationError(_("Pass score must be between 1 and 100."))
+            config = {'questions': cleaned_questions, 'pass_score': pass_score}
+        elif challenge_type == 'checklist':
+            items = [str(value).strip() for value in config.get('items', []) if str(value).strip()]
+            if not items or len(items) > 12:
+                raise ValidationError(_("Add between 1 and 12 checklist actions."))
+            config = {'items': items[:12]}
+        elif challenge_type == 'photo':
+            config = {'evidence_rule': 'A clear original photo must visibly contain the required subject.'}
+        else:
+            config = {}
         challenge = request.env['esg.challenge'].create({
             'name': name.strip(), 'description': description.strip(), 'xp_value': max(int(xp_value or 0), 0),
-            'difficulty': difficulty, 'deadline': deadline, 'state': state, 'challenge_type': 'action',
+            'difficulty': difficulty, 'deadline': deadline, 'state': state, 'challenge_type': challenge_type, 'game_config': config,
         })
         return {'id': challenge.id, 'message': _("Challenge created.")}
 
