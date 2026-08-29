@@ -259,6 +259,35 @@ class ESGAudit(models.Model):
     state = fields.Selection([("under_review", "Under Review"), ("completed", "Completed")], default="under_review", required=True)
     issue_ids = fields.One2many("esg.compliance.issue", "audit_id")
 
+    def _is_esg_admin(self):
+        return self.env.su or self.env.is_superuser() or self.env.user.has_group("eco_sphere_esg.group_esg_admin")
+
+    def _require_esg_admin(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can manage audits."))
+
+    @api.model_create_multi
+    def create(self, values_list):
+        self._require_esg_admin()
+        return super().create(values_list)
+
+    def write(self, values):
+        if set(values) - {"message_follower_ids", "message_ids"}:
+            self._require_esg_admin()
+        return super().write(values)
+
+    def unlink(self):
+        self._require_esg_admin()
+        return super().unlink()
+
+    def action_complete(self):
+        self._require_esg_admin()
+        self.write({"state": "completed"})
+
+    def action_reopen(self):
+        self._require_esg_admin()
+        self.write({"state": "under_review"})
+
 
 class ESGComplianceIssue(models.Model):
     _name = "esg.compliance.issue"
@@ -277,6 +306,21 @@ class ESGComplianceIssue(models.Model):
     is_overdue = fields.Boolean(default=False, readonly=True, index=True)
     resolved_on = fields.Datetime(readonly=True)
 
+    def _is_esg_admin(self):
+        return self.env.su or self.env.is_superuser() or self.env.user.has_group("eco_sphere_esg.group_esg_admin")
+
+    def _current_employee(self):
+        employee = self.env.user.employee_id
+        if not employee and not self._is_esg_admin():
+            raise AccessError(_("Only employee accounts can raise compliance issues."))
+        return employee
+
+    def _fallback_department(self):
+        department = self.env["esg.department"].sudo().search([("code", "=", "UNASSIGNED")], limit=1)
+        if department:
+            return department
+        return self.env["esg.department"].sudo().create({"name": _("Unassigned"), "code": "UNASSIGNED"})
+
     @api.constrains("owner_id", "due_date")
     def _check_required_ownership(self):
         for issue in self:
@@ -288,6 +332,15 @@ class ESGComplianceIssue(models.Model):
     @api.model_create_multi
     def create(self, values_list):
         for values in values_list:
+            if not self._is_esg_admin():
+                employee = self._current_employee()
+                values["owner_id"] = employee.id
+                values["state"] = "open"
+                values.pop("resolved_on", None)
+                if not values.get("department_id") and employee.esg_department_id:
+                    values["department_id"] = employee.esg_department_id.id
+                elif not values.get("department_id"):
+                    values["department_id"] = self._fallback_department().id
             if not values.get("owner_id"):
                 raise ValidationError(_("A compliance issue must have an owner."))
             if not values.get("due_date"):
@@ -300,10 +353,21 @@ class ESGComplianceIssue(models.Model):
         return issues
 
     def write(self, values):
+        if not self._is_esg_admin():
+            protected = {"state", "resolved_on", "owner_id", "audit_id", "severity", "due_date"}
+            if protected.intersection(values):
+                raise AccessError(_("Only an EcoSphere administrator can review or reassign compliance issues."))
+            if any(issue.create_uid != self.env.user for issue in self):
+                raise AccessError(_("You can only update compliance issues you raised."))
         result = super().write(values)
         if {"state", "due_date"}.intersection(values):
             self._refresh_overdue_flag()
         return result
+
+    def unlink(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can remove compliance issues."))
+        return super().unlink()
 
     def _refresh_overdue_flag(self):
         today = fields.Date.today()
@@ -319,4 +383,11 @@ class ESGComplianceIssue(models.Model):
         return True
 
     def action_resolve(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can resolve compliance issues."))
         self.write({"state": "resolved", "resolved_on": fields.Datetime.now()})
+
+    def action_reopen(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can reopen compliance issues."))
+        self.write({"state": "open", "resolved_on": False})

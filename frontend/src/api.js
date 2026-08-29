@@ -145,6 +145,14 @@ export const acknowledgePolicy = id => rpc(`/ecosphere/api/policy-acknowledgemen
 export const getPolicyWorkspace = filters => rpc('/ecosphere/api/policy-workspace', filters || {});
 export const remindPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/remind', filters || {});
 export const exportPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/export', filters || {});
+export const getAuditWorkspace = filters => rpc('/ecosphere/api/audit-workspace', filters || {});
+export const createAudit = values => rpc('/ecosphere/api/audits/create', {values});
+export const updateAudit = (id, values) => rpc(`/ecosphere/api/audits/${id}/update`, {values});
+export const runAuditAction = (id, action) => rpc(`/ecosphere/api/audits/${id}/${action}`);
+export const createComplianceIssue = values => rpc('/ecosphere/api/compliance-issues/create', {values});
+export const updateComplianceIssue = (id, values) => rpc(`/ecosphere/api/compliance-issues/${id}/update`, {values});
+export const runComplianceIssueAction = (id, action) => rpc(`/ecosphere/api/compliance-issues/${id}/${action}`);
+export const exportAuditWorkspace = filters => rpc('/ecosphere/api/audit-workspace/export', filters || {});
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
 export const getSettings = () => rpc('/ecosphere/api/settings');

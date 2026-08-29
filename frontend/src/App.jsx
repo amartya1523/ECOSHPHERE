@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import LandingPage from './LandingPage';
-import { acknowledgePolicy, archiveDepartment, archiveSocialActivity, createChallenge, createResource, createSocialActivity, createTeamMember, deleteResource, exportPolicyAcknowledgements, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSettings, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, remindPolicyAcknowledgements, reviewChallenge, reviewSocialParticipation, runPolicyAction, saveDepartment, saveProfileSettings, saveWorkspaceSettings, signIn, signUp, submitSocialParticipation, updateResource, updateSocialActivity } from './api';
+import { acknowledgePolicy, archiveDepartment, archiveSocialActivity, createAudit, createChallenge, createComplianceIssue, createResource, createSocialActivity, createTeamMember, deleteResource, exportAuditWorkspace, exportPolicyAcknowledgements, getAuditWorkspace, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSettings, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, remindPolicyAcknowledgements, reviewChallenge, reviewSocialParticipation, runAuditAction, runComplianceIssueAction, runPolicyAction, saveDepartment, saveProfileSettings, saveWorkspaceSettings, signIn, signUp, submitSocialParticipation, updateAudit, updateComplianceIssue, updateResource, updateSocialActivity } from './api';
 import { AnimatePresence, motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import {
   ArrowUpRight, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
@@ -42,12 +42,30 @@ const modules = {
 
 function Mark() { return <div className="mark"><span /><span /><span /></div>; }
 
+function initialsFor(name) {
+  return String(name || '').split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || '—';
+}
+
+function profileFromSession(session) {
+  const name = session?.name || session?.partner_display_name || session?.username || '';
+  const companies = session?.user_companies;
+  const company = companies?.allowed_companies?.[companies?.current_company];
+  if (!name) return null;
+  return {
+    name,
+    email: session?.username || '',
+    initials: initialsFor(name),
+    role: 'EcoSphere member',
+    workspace: company?.name || 'EcoSphere workspace',
+  };
+}
+
 function Login({ onLogin }) {
   const demoAccounts={admin:{email:'admin@ecosphere.local',password:'Admin@EcoSphere2026',label:'Administrator'},employee:{email:'employee@ecosphere.local',password:'Employee@EcoSphere2026',label:'Employee'}};
   const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [accountKind,setAccountKind]=useState('admin'); const [credentials,setCredentials]=useState(demoAccounts.admin); const [createAdmin,setCreateAdmin]=useState(()=>window.location.pathname === '/signup'); useEffect(()=>{const path=createAdmin?'/signup':'/signin';if(['/signin','/signup'].includes(window.location.pathname)&&window.location.pathname!==path)window.history.replaceState({},'',path);},[createAdmin]);
   const selectAccount = (kind) => { setAccountKind(kind); setCredentials(demoAccounts[kind]); setError(''); };
-  const submit = async (event) => { event.preventDefault(); setError(''); setLoading(true); try { await signIn(credentials.email, credentials.password); onLogin(); } catch (requestError) { setError(requestError.message); setLoading(false); } };
-  const createEnterpriseAdmin = async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name') || '').trim(); const workspaceName = String(form.get('workspace_name') || '').trim(); const email = String(form.get('email') || '').trim(); const password = String(form.get('password') || ''); const confirmPassword = String(form.get('confirm_password') || ''); if (password !== confirmPassword) { setError('Passwords do not match.'); return; } setError(''); setLoading(true); try { await signUp(name, workspaceName, email, password); await signIn(email, password); onLogin(); } catch (requestError) { setError(requestError.message); setLoading(false); } };
+  const submit = async (event) => { event.preventDefault(); setError(''); setLoading(true); try { const session = await signIn(credentials.email, credentials.password); onLogin(profileFromSession(session)); } catch (requestError) { setError(requestError.message); setLoading(false); } };
+  const createEnterpriseAdmin = async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name') || '').trim(); const workspaceName = String(form.get('workspace_name') || '').trim(); const email = String(form.get('email') || '').trim(); const password = String(form.get('password') || ''); const confirmPassword = String(form.get('confirm_password') || ''); if (password !== confirmPassword) { setError('Passwords do not match.'); return; } setError(''); setLoading(true); try { await signUp(name, workspaceName, email, password); const session = await signIn(email, password); onLogin(profileFromSession(session)); } catch (requestError) { setError(requestError.message); setLoading(false); } };
   return <main className="login-page">
     <div className="aurora aurora-one" /><div className="aurora aurora-two" />
     <motion.header className="login-nav" initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 220, damping: 24 }}>
@@ -63,7 +81,7 @@ function Login({ onLogin }) {
 
 function Sidebar({ active, setActive, open, setOpen, collapsed, setCollapsed, user }) {
   const [expanded, setExpanded] = useState('Environmental');
-  const initials = user?.initials || user?.name?.split(' ').map(part=>part[0]).join('').slice(0,2).toUpperCase() || '—';
+  const initials = user?.initials || initialsFor(user?.name);
   return (
     <aside className={`sidebar ${open ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
       <div className="side-brand">
@@ -273,8 +291,39 @@ function PolicyWorkspace({ active, onNotify }) {
  </section>;
 }
 
+function AuditForm({ audit, data, onClose, onSaved }) {
+ const [saving,setSaving]=useState(false),[error,setError]=useState('');
+ const submit=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setSaving(true);setError('');const values={name:form.get('name'),department_id:form.get('department_id'),auditor_id:form.get('auditor_id'),audit_date:form.get('audit_date'),findings:form.get('findings'),state:form.get('state')||'under_review'};try{if(audit)await updateAudit(audit.id,values);else await createAudit(values);onSaved(audit?'Audit updated.':'Audit created.');}catch(err){setError(err.message);setSaving(false);}};
+ return <div className="modal-scrim"><motion.form className="record-modal" onSubmit={submit} initial={{opacity:0,scale:.96,y:16}} animate={{opacity:1,scale:1,y:0}} transition={{type:'spring',stiffness:260,damping:25}}><div className="modal-heading"><div><span className="eyebrow violet-text">AUDIT DETAILS</span><h2>{audit?'Edit audit':'New audit'}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Audit title *<input name="name" required defaultValue={audit?.name||''}/></label><label>Department *<select name="department_id" required defaultValue={audit?.department_id||''}><option value="">Select...</option>{(data?.departments||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>Auditor *<select name="auditor_id" required defaultValue={audit?.auditor_id||''}><option value="">Select...</option>{(data?.employees||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>Audit Date *<input name="audit_date" type="date" required defaultValue={audit?.audit_date||''}/></label><label>Status<select name="state" defaultValue={audit?.state||'under_review'}><option value="under_review">Under Review</option><option value="completed">Completed</option></select></label><label className="full-form-field">Findings<textarea name="findings" defaultValue={audit?.findings_text||audit?.findings||''}/></label></div>{error&&<p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="cancel-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={saving}>{saving?'Saving...':'Save audit'} <ArrowUpRight size={16}/></button></div></motion.form></div>;
+}
+
+function IssueForm({ issue, audit, data, isManager, onClose, onSaved }) {
+ const [saving,setSaving]=useState(false),[error,setError]=useState('');
+ const submit=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setSaving(true);setError('');const values={name:form.get('name'),audit_id:form.get('audit_id'),department_id:form.get('department_id'),severity:form.get('severity'),owner_id:form.get('owner_id'),due_date:form.get('due_date'),description:form.get('description'),state:form.get('state')||'open'};try{if(issue)await updateComplianceIssue(issue.id,values);else await createComplianceIssue(values);onSaved(issue?'Compliance issue updated.':'Compliance issue raised for review.');}catch(err){setError(err.message);setSaving(false);}};
+ return <div className="modal-scrim"><motion.form className="record-modal" onSubmit={submit} initial={{opacity:0,scale:.96,y:16}} animate={{opacity:1,scale:1,y:0}} transition={{type:'spring',stiffness:260,damping:25}}><div className="modal-heading"><div><span className="eyebrow violet-text">COMPLIANCE ISSUE</span><h2>{issue?'Edit issue':'Raise issue'}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Issue title *<input name="name" required defaultValue={issue?.name||''}/></label><label>Audit<select name="audit_id" defaultValue={issue?.audit_id||audit?.id||''}><option value="">No audit link</option>{(data?.audit_options||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>Department{isManager&&' *'}<select name="department_id" required={isManager} defaultValue={issue?.department_id||audit?.department_id||''}><option value="">Use my department</option>{(data?.departments||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>Severity *<select name="severity" required defaultValue={issue?.severity||'medium'}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label>{isManager&&<label>Owner *<select name="owner_id" required defaultValue={issue?.owner_id||''}><option value="">Select...</option>{(data?.employees||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>}<label>Due Date *<input name="due_date" type="date" required defaultValue={issue?.due_date||''}/></label>{isManager&&<label>Status<select name="state" defaultValue={issue?.state||'open'}><option value="open">Open</option><option value="resolved">Resolved</option></select></label>}<label className="full-form-field">Description *<textarea name="description" required defaultValue={issue?.description_text||issue?.description||''}/></label></div>{error&&<p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="cancel-btn" onClick={onClose}>Cancel</button><button className="primary-btn" disabled={saving}>{saving?'Saving...':issue?'Save issue':'Raise issue'} <ArrowUpRight size={16}/></button></div></motion.form></div>;
+}
+
+function AuditDetail({ audit, isManager, onClose, onAuditAction, onIssueAction, onIssueEdit, onIssueCreate }) {
+ return <div className="modal-scrim"><motion.section className="record-modal" initial={{opacity:0,scale:.96,y:16}} animate={{opacity:1,scale:1,y:0}}><div className="modal-heading"><div><span className="eyebrow violet-text">AUDIT DETAIL</span><h2>{audit.name}</h2></div><button type="button" className="icon-btn" onClick={onClose}><X size={18}/></button></div><div className="detail-hero"><span className={`workflow-pill ${audit.state}`}>{audit.state.replace('_',' ')}</span><span className="xp-chip">{audit.department||'No department'}</span><span className="xp-chip">{audit.audit_date||'No date'}</span></div><div className="detail-grid"><article><span>Auditor</span><strong>{audit.auditor||'Unassigned'}</strong></article><article><span>Open Issues</span><strong>{audit.open_issue_count}</strong></article><article><span>Critical Issues</span><strong>{audit.critical_issue_count}</strong></article><article><span>Overdue</span><strong>{audit.overdue_issue_count}</strong></article></div><div className="detail-rules"><h3>Findings</h3><p>{audit.findings_text||'No findings recorded yet.'}</p></div><div className="detail-rules"><h3>Related Issues</h3>{audit.issues.length?audit.issues.map(issue=><p key={issue.id}>{issue.name} · {issue.severity} · {issue.state}{issue.is_overdue?' · overdue':''}</p>):<p>No related compliance issues.</p>}<button className="text-button" onClick={()=>onIssueCreate(audit)}>Raise related issue <ArrowUpRight size={15}/></button></div><div className="modal-actions">{isManager&&<><button className="cancel-btn" disabled={audit.state==='completed'} onClick={()=>onAuditAction(audit,'complete')}>Complete</button><button className="cancel-btn" disabled={audit.state==='under_review'} onClick={()=>onAuditAction(audit,'reopen')}>Reopen</button></>}<button className="primary-btn" onClick={onClose}>Close</button></div></motion.section></div>;
+}
+
+function AuditWorkspace({ active, onNotify }) {
+ const [data,setData]=useState(null),[query,setQuery]=useState(''),[status,setStatus]=useState('all'),[issueStatus,setIssueStatus]=useState('all'),[severity,setSeverity]=useState('all'),[departmentFilter,setDepartmentFilter]=useState(''),[auditFilter,setAuditFilter]=useState(''),[auditModal,setAuditModal]=useState(null),[issueModal,setIssueModal]=useState(null),[detail,setDetail]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const showIssues=active==='Compliance issues';
+ const load=async()=>{setBusy(true);try{setData(await getAuditWorkspace({query,status,issue_status:issueStatus,severity,department_id:departmentFilter||undefined,audit_id:auditFilter||undefined}));setError('');}catch(err){setError(err.message);}finally{setBusy(false);}};
+ useEffect(()=>{load();},[active,status,issueStatus,severity,departmentFilter,auditFilter]);
+ const done=async message=>{setAuditModal(null);setIssueModal(null);setDetail(null);await load();onNotify(message);};
+ const auditAction=async(audit,name)=>{setBusy(true);try{const result=await runAuditAction(audit.id,name);await done(result.message);}catch(err){setError(err.message);setBusy(false);}};
+ const issueAction=async(issue,name)=>{setBusy(true);try{const result=await runComplianceIssueAction(issue.id,name);await done(result.message);}catch(err){setError(err.message);setBusy(false);}};
+ const exportRows=async()=>{setBusy(true);try{const result=await exportAuditWorkspace({audit_id:auditFilter||undefined,department_id:departmentFilter||undefined,issue_status:issueStatus,severity});const url=URL.createObjectURL(new Blob([result.csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=result.filename||'audit-workspace.csv';link.click();URL.revokeObjectURL(url);onNotify('Audit export prepared.');}catch(err){setError(err.message);}finally{setBusy(false);}};
+ const rows=data?.audits||[],isManager=Boolean(data?.is_manager),metrics=data?.metrics||{};
+ const issueRows=(data?.issues||[]).filter(issue=>(issueStatus==='all'||issue.state===issueStatus)&&(severity==='all'||issue.severity===severity));
+ return <section className="module-workspace module-governance"><div className="module-header"><div><span className="eyebrow">GOVERNANCE WORKSPACE</span><h1>{showIssues?(isManager?'Compliance issues':'My compliance issues'):(isManager?'Audits':'My audits')}</h1><p>{isManager?'Manage audit cycles, findings, issue ownership, and resolution status.':'View assigned audit work and raise compliance issues for administrator review.'}</p></div><div className="header-actions">{isManager&&!showIssues&&<button className="primary-btn" onClick={()=>setAuditModal({})}><Plus size={18}/> New Audit</button>}<button className="primary-btn" onClick={()=>setIssueModal({})}><Plus size={18}/> Raise Issue</button></div></div><section className="module-stat-strip"><article><span>{showIssues?'Open issues':'Audits in review'}</span><strong>{showIssues?metrics.open_issues||0:metrics.under_review||0}</strong></article><article><span>Overdue issues</span><strong>{metrics.overdue_issues||0}</strong></article><article><span>{showIssues?'Resolution rate':'Completed audits'}</span><strong>{showIssues?`${metrics.resolution_rate||0}%`:metrics.completed||0}</strong></article></section><div className="table-toolbar"><label className="table-search"><Search size={16}/><input value={query} placeholder={showIssues?'Search issues':'Search audits'} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==='Enter'&&load()}/></label>{isManager&&<select value={departmentFilter} onChange={event=>setDepartmentFilter(event.target.value)}><option value="">All departments</option>{(data?.departments||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>}{showIssues&&<select value={auditFilter} onChange={event=>setAuditFilter(event.target.value)}><option value="">All audits</option>{(data?.audit_options||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>}<button className="soft-btn" onClick={load}>{busy?'Refreshing...':'Refresh'}</button></div><div className="game-tabs">{['all','under_review','completed'].map(value=><button key={value} className={status===value?'selected':''} onClick={()=>setStatus(value)}>{value==='all'?'All audits':value.replace('_',' ')}</button>)}</div><div className="game-tabs">{['all','open','resolved'].map(value=><button key={value} className={issueStatus===value?'selected':''} onClick={()=>setIssueStatus(value)}>{value==='all'?'All issues':value}</button>)}{['low','medium','high','critical'].map(value=><button key={value} className={severity===value?'selected':''} onClick={()=>setSeverity(severity===value?'all':value)}>{value}</button>)}</div>{isManager&&<div className="row-actions"><button disabled={busy||(!rows.length&&!issueRows.length)} onClick={exportRows}>Export CSV</button></div>}{error&&<p className="form-error">{error}</p>}{showIssues?<section className="data-surface"><div className="data-table-wrap"><table><thead><tr><th>Issue</th><th>Audit</th><th>Department</th><th>Severity</th><th>Owner</th><th>Due Date</th><th>Status</th><th/></tr></thead><tbody>{issueRows.map(issue=><tr key={issue.id}><td>{issue.name}</td><td>{issue.audit||'--'}</td><td>{issue.department||'--'}</td><td>{issue.severity}</td><td>{issue.owner||'--'}</td><td>{issue.due_date||'--'}</td><td><span className={`workflow-pill ${issue.is_overdue?'rejected':issue.state}`}>{issue.is_overdue?'overdue':issue.state}</span></td><td className="row-actions">{isManager&&<><button onClick={()=>setIssueModal(issue)}>Edit</button><button disabled={issue.state==='resolved'} onClick={()=>issueAction(issue,'resolve')}>Resolve</button><button disabled={issue.state==='open'} onClick={()=>issueAction(issue,'reopen')}>Reopen</button></>}<button disabled={!issue.audit_id} onClick={()=>setDetail(rows.find(audit=>audit.id===issue.audit_id))}>Audit</button></td></tr>)}{!issueRows.length&&<tr><td colSpan="8"><div className="empty-state"><ClipboardCheck size={23}/><strong>No compliance issues in this view.</strong><span>Issues raised from audits or employees will appear here.</span></div></td></tr>}</tbody></table></div></section>:<section className="data-surface"><div className="data-table-wrap"><table><thead><tr><th>Audit</th><th>Department</th><th>Auditor</th><th>Date</th><th>Findings</th><th>Open Issues</th><th>Status</th><th/></tr></thead><tbody>{rows.map(audit=><tr key={audit.id}><td>{audit.name}</td><td>{audit.department||'--'}</td><td>{audit.auditor||'--'}</td><td>{audit.audit_date||'--'}</td><td>{audit.findings_text||'--'}</td><td><button className="text-button" onClick={()=>setDetail(audit)}>{audit.open_issue_count} open · {audit.overdue_issue_count} overdue</button></td><td><span className={`workflow-pill ${audit.state}`}>{audit.state.replace('_',' ')}</span></td><td className="row-actions"><button onClick={()=>setDetail(audit)}>View</button>{isManager&&<><button onClick={()=>setAuditModal(audit)}>Edit</button><button disabled={audit.state==='completed'} onClick={()=>auditAction(audit,'complete')}>Complete</button><button disabled={audit.state==='under_review'} onClick={()=>auditAction(audit,'reopen')}>Reopen</button></>}</td></tr>)}{!rows.length&&<tr><td colSpan="8"><div className="empty-state"><ClipboardCheck size={23}/><strong>{isManager?'No audits created yet.':'No audits assigned to you.'}</strong><span>{isManager?'Create an audit cycle when governance review is ready.':'Audits appear here when you are the auditor or part of the audited department.'}</span></div></td></tr>}</tbody></table></div></section>}{!showIssues&&issueRows.length>0&&<section className="data-surface review-panel"><div className="panel-title"><div><span className="eyebrow violet-text">COMPLIANCE ISSUES</span><h3>{isManager?'Open issue queue':'Your raised issues'}</h3></div></div><div className="data-table-wrap"><table><thead><tr><th>Issue</th><th>Audit</th><th>Severity</th><th>Due Date</th><th>Status</th></tr></thead><tbody>{issueRows.slice(0,5).map(issue=><tr key={issue.id}><td>{issue.name}</td><td>{issue.audit||'--'}</td><td>{issue.severity}</td><td>{issue.due_date||'--'}</td><td><span className={`workflow-pill ${issue.is_overdue?'rejected':issue.state}`}>{issue.is_overdue?'overdue':issue.state}</span></td></tr>)}</tbody></table></div></section>}{auditModal&&<AuditForm audit={auditModal.id?auditModal:null} data={data} onClose={()=>setAuditModal(null)} onSaved={done}/>} {issueModal&&<IssueForm issue={issueModal.id?issueModal:null} audit={issueModal.audit_id?rows.find(audit=>audit.id===issueModal.audit_id):issueModal.id?null:detail} data={data} isManager={isManager} onClose={()=>setIssueModal(null)} onSaved={done}/>} {detail&&<AuditDetail audit={detail} isManager={isManager} onClose={()=>setDetail(null)} onAuditAction={auditAction} onIssueAction={issueAction} onIssueEdit={setIssueModal} onIssueCreate={setIssueModal}/>}</section>;
+}
+
 function ModuleWorkspace({ label, onNotify }) {
  if(['Policies','Policy acknowledgements'].includes(label))return <PolicyWorkspace active={label} onNotify={onNotify}/>;
+ if(['Audits','Compliance issues'].includes(label))return <AuditWorkspace active={label} onNotify={onNotify}/>;
  if(['CSR activities','Employee participation'].includes(label))return <SocialWorkspace active={label} onNotify={onNotify}/>;
  const config = modules[label] || modules['Carbon transactions']; const [data,setData]=useState(null); const [query,setQuery]=useState(''); const [modal,setModal]=useState(null); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
  const load = async () => { setBusy(true); try { setData(await getResource(config.slug, query || undefined)); setError(''); } catch(e) { setError(e.message); } finally { setBusy(false); } };
@@ -365,7 +414,7 @@ function PillarWorkspace({ pillar, onNavigate }) {
  return <section className={`module-workspace pillar-workspace pillar-${pillar.toLowerCase()}`}><div className="module-header"><div><span className="eyebrow">{config.eyebrow}</span><h1>{config.title}</h1><p>{config.subtitle}</p></div><button className="soft-btn" onClick={load}>{loading?'Refreshing…':'Refresh live data'}</button></div><section className="pillar-hero"><article><span className="eyebrow">{captions[0].toUpperCase()}</span><strong>{total}</strong><p>{captions[1]}</p></article><article><span className="eyebrow">WORKSPACE HEALTH</span><strong>{error?'Needs attention':'Live'}</strong><p>{error||captions[2]}</p></article><article><span className="eyebrow">NEXT STEP</span><strong>{loading?'Loading…':total?'Review records':'Add data'}</strong><p>{total?'Open an operational area below to act on live data.':'Start with the most relevant record type below.'}</p></article></section>{error&&<p className="form-error">{error}</p>}<section className="pillar-grid">{config.items.map(([label,,purpose],index)=>{const rows=sets[index]?.records||[];const fields=sets[index]?.fields||[];const preview=rows.slice(0,2);return <article className="data-surface pillar-card" key={label}><div className="panel-title"><div><span className="eyebrow">{purpose.toUpperCase()}</span><h3>{label}</h3></div><span className="count-chip">{rows.length}</span></div><p>{loading?'Loading saved records…':rows.length?`${rows.length} saved record${rows.length===1?'':'s'} in this operational area.`:'No saved records yet. Add the first one when your data is ready.'}</p>{preview.length?<div className="pillar-preview">{preview.map(row=><span key={row.id}>{row.display_name||row.name||fields.map(field=>valueText(row[field.name])).find(value=>value!=='—')||'Saved record'}</span>)}</div>:<div className="pillar-empty">No preview available</div>}<button className="text-button" onClick={()=>onNavigate(label)}>Open {label} <ArrowUpRight size={15}/></button></article>})}</section></section>;
 }
 
-function Dashboard({ onLogout }) {
+function Dashboard({ onLogout, sessionUser }) {
   const [active,setActive] = useState('Overview');
   const [menu,setMenu] = useState(false);
   const [collapsed,setCollapsed] = useState(false);
@@ -413,6 +462,7 @@ function Dashboard({ onLogout }) {
   ];
   const counts = live?.counts || {carbon_transactions:0, environmental_goals:0, csr_activities:0, active_challenges:0, open_issues:0};
   const notify = message => { setNotice(message); window.setTimeout(() => setNotice(''), 3600); };
+  const currentUser = live?.user || sessionUser;
 
   // Quick-navigate destinations shown in search
   const allDestinations = [
@@ -451,12 +501,12 @@ function Dashboard({ onLogout }) {
   ];
   const unreadCount = notifications.filter(n => n.unread).length;
 
-  const overview = <><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">LIVE ESG DASHBOARD</span><h1>Welcome, {live?.user?.name || '…'}.</h1><p>All values below are calculated from saved EcoSphere records.</p></div><button className="primary-btn" onClick={()=>setActive('Carbon transactions')}><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{shownKpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard count={counts.carbon_transactions} onOpen={()=>setActive('Carbon transactions')}/><PeopleCard counts={counts} onOpen={()=>setActive('CSR activities')}/></section><section className="bento lower-bento"><RankingCard ranking={live?.ranking || []}/><section className="panel next-card"><span className="eyebrow orange-text">GOVERNANCE</span><h3>{counts.open_issues} open compliance issue{counts.open_issues === 1 ? '' : 's'}</h3><p>This is the current count from your saved compliance records.</p><div><span className="date-chip"><ClipboardCheck size={17}/></span><button className="round-action" onClick={()=>setActive('Compliance issues')}><ArrowUpRight size={18}/></button></div></section></section></>;
+  const overview = <><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">LIVE ESG DASHBOARD</span><h1>Welcome, {currentUser?.name || '…'}.</h1><p>All values below are calculated from saved EcoSphere records.</p></div><button className="primary-btn" onClick={()=>setActive('Carbon transactions')}><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{shownKpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard count={counts.carbon_transactions} onOpen={()=>setActive('Carbon transactions')}/><PeopleCard counts={counts} onOpen={()=>setActive('CSR activities')}/></section><section className="bento lower-bento"><RankingCard ranking={live?.ranking || []}/><section className="panel next-card"><span className="eyebrow orange-text">GOVERNANCE</span><h3>{counts.open_issues} open compliance issue{counts.open_issues === 1 ? '' : 's'}</h3><p>This is the current count from your saved compliance records.</p><div><span className="date-chip"><ClipboardCheck size={17}/></span><button className="round-action" onClick={()=>setActive('Compliance issues')}><ArrowUpRight size={18}/></button></div></section></section></>;
 
   const sideW = collapsed ? 64 : 252;
   return (
     <div className="app-shell">
-      <Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu} collapsed={collapsed} setCollapsed={setCollapsed} user={live?.user}/>
+      <Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu} collapsed={collapsed} setCollapsed={setCollapsed} user={currentUser}/>
       <main className="workspace-main" style={{marginLeft:sideW,width:`calc(100% - ${sideW}px)`}}>
         <motion.div className="dashboard-glow" style={{y:glowY}}/>
         <header className="topbar">
@@ -511,7 +561,7 @@ function Dashboard({ onLogout }) {
             {/* Avatar / Profile */}
             <div className="topbar-dropdown-wrap">
               <button className="top-avatar" onClick={()=>{setShowProfile(v=>!v);setShowNotifs(false);}}>
-                {live?.user?.initials || '—'}
+                {currentUser?.initials || '—'}
               </button>
               <AnimatePresence>
                 {showProfile && (
@@ -523,11 +573,11 @@ function Dashboard({ onLogout }) {
                     transition={{type:'spring',bounce:0,duration:0.28}}
                   >
                     <div className="td-profile-head">
-                      <div className="td-avatar-lg">{live?.user?.initials || '—'}</div>
+                      <div className="td-avatar-lg">{currentUser?.initials || '—'}</div>
                       <div>
-                        <strong>{live?.user?.name || 'EcoSphere user'}</strong>
-                        <span>{live?.user?.email || ''}</span>
-                        <span className="td-role-pill">{live?.user?.role || 'Member'}</span>
+                        <strong>{currentUser?.name || 'EcoSphere user'}</strong>
+                        <span>{currentUser?.email || ''}</span>
+                        <span className="td-role-pill">{currentUser?.role || 'Member'}</span>
                       </div>
                     </div>
                     <div className="td-divider"/>
@@ -538,7 +588,7 @@ function Dashboard({ onLogout }) {
                       <button onClick={()=>{setActive('Settings');setShowProfile(false);}}>
                         <Settings size={15}/> Settings
                       </button>
-                      {live?.user?.role === 'ESG Manager' && (
+                      {currentUser?.role === 'ESG Manager' && (
                         <button onClick={()=>{setActive('Team access');setShowProfile(false);}}>
                           <Users size={15}/> Team access
                         </button>
@@ -694,13 +744,34 @@ export default function App() {
     return 'landing';
   };
   const [view, setView] = useState(viewForPath);
+  const [sessionUser, setSessionUser] = useState(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem('ecosphere:session-user')) || null;
+    } catch {
+      return null;
+    }
+  });
   const navigate = (path) => {
     window.history.pushState({}, '', path);
     setView(viewForPath());
   };
+  const openDashboard = profile => {
+    if (profile) {
+      setSessionUser(profile);
+      window.localStorage.setItem('ecosphere:session-user', JSON.stringify(profile));
+    }
+    navigate('/dashboard');
+  };
+  const logout = () => {
+    window.localStorage.removeItem('ecosphere:session-user');
+    setSessionUser(null);
+    navigate('/');
+  };
   useEffect(() => {
     const handleNavigation = () => setView(viewForPath());
     const expireSession = () => {
+      window.localStorage.removeItem('ecosphere:session-user');
+      setSessionUser(null);
       window.history.pushState({}, '', '/signin');
       setView('login');
     };
@@ -732,7 +803,7 @@ export default function App() {
           exit={{ opacity: 0, scale: 0.985 }}
           transition={{ type: 'spring', bounce: 0, duration: 0.45 }}
         >
-          <Login onLogin={() => navigate('/dashboard')} />
+          <Login onLogin={openDashboard} />
         </motion.div>
       )}
       {view === 'app' && (
@@ -742,7 +813,7 @@ export default function App() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          <Dashboard onLogout={() => navigate('/')} />
+          <Dashboard onLogout={logout} sessionUser={sessionUser} />
           <GamificationAdminQuickActions />
           <ChallengeDetailOverlay />
           <ChallengeAdminSetupPanel />

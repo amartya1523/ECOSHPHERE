@@ -373,6 +373,191 @@ class EcoSphereAPI(http.Controller):
             'csv': buffer.getvalue(),
         }
 
+    def _audit_issue_row(self, issue):
+        return {
+            'id': issue.id,
+            'name': issue.name,
+            'audit_id': issue.audit_id.id or False,
+            'audit': issue.audit_id.display_name or '',
+            'department_id': issue.department_id.id or False,
+            'department': issue.department_id.display_name or '',
+            'severity': issue.severity,
+            'description': issue.description or '',
+            'description_text': html2plaintext(issue.description or '').strip(),
+            'owner_id': issue.owner_id.id or False,
+            'owner': issue.owner_id.display_name or '',
+            'due_date': str(issue.due_date or ''),
+            'state': issue.state,
+            'is_overdue': issue.is_overdue,
+            'resolved_on': str(issue.resolved_on or ''),
+            'raised_by': issue.create_uid.display_name or '',
+        }
+
+    def _audit_row(self, audit, is_admin):
+        issues = audit.issue_ids.sudo() if is_admin else audit.issue_ids
+        open_issues = issues.filtered(lambda issue: issue.state == 'open')
+        critical_issues = issues.filtered(lambda issue: issue.severity == 'critical')
+        return {
+            'id': audit.id,
+            'name': audit.name,
+            'department_id': audit.department_id.id or False,
+            'department': audit.department_id.display_name or '',
+            'auditor_id': audit.auditor_id.id or False,
+            'auditor': audit.auditor_id.display_name or '',
+            'audit_date': str(audit.audit_date or ''),
+            'findings': audit.findings or '',
+            'findings_text': html2plaintext(audit.findings or '').strip(),
+            'state': audit.state,
+            'issue_count': len(issues),
+            'open_issue_count': len(open_issues),
+            'critical_issue_count': len(critical_issues),
+            'overdue_issue_count': len(issues.filtered('is_overdue')),
+            'issues': [self._audit_issue_row(issue) for issue in issues],
+        }
+
+    def _filtered_audit_rows(self, rows, query=None, status='all', severity='all', department_id=None, audit_id=None):
+        if query:
+            needle = query.strip().lower()
+            rows = [row for row in rows if needle in ' '.join([row['name'], row['department'], row['auditor'], row['findings_text']]).lower()]
+        if audit_id:
+            rows = [row for row in rows if row['id'] == int(audit_id)]
+        if status and status != 'all':
+            rows = [row for row in rows if row['state'] == status]
+        if department_id:
+            selected = int(department_id)
+            rows = [row for row in rows if row['department_id'] == selected]
+        if severity and severity != 'all':
+            rows = [row for row in rows if any(issue['severity'] == severity for issue in row['issues'])]
+        return rows
+
+    @http.route('/ecosphere/api/audit-workspace', type='json', auth='user', methods=['POST'], csrf=False)
+    def audit_workspace(self, query=None, status='all', issue_status='all', severity='all', department_id=None, audit_id=None):
+        is_admin = request.env.user.has_group('eco_sphere_esg.group_esg_admin')
+        Audit = request.env['esg.audit']
+        Issue = request.env['esg.compliance.issue']
+        audits = Audit.search([], order='audit_date desc, id desc')
+        rows = [self._audit_row(audit, is_admin) for audit in audits]
+        audit_options = [(row['id'], row['name']) for row in rows]
+        rows = self._filtered_audit_rows(rows, query=query, status=status, severity=severity, department_id=department_id if is_admin else None, audit_id=audit_id)
+        if issue_status and issue_status != 'all':
+            rows = [row for row in rows if any(issue['state'] == issue_status for issue in row['issues'])]
+        issue_domain = []
+        if audit_id:
+            issue_domain.append(('audit_id', '=', int(audit_id)))
+        if department_id and is_admin:
+            issue_domain.append(('department_id', '=', int(department_id)))
+        if issue_status and issue_status != 'all':
+            issue_domain.append(('state', '=', issue_status))
+        if severity and severity != 'all':
+            issue_domain.append(('severity', '=', severity))
+        issue_records = Issue.search(issue_domain, order='is_overdue desc, due_date asc, id desc')
+        issues = [self._audit_issue_row(issue) for issue in issue_records]
+        if query:
+            needle = query.strip().lower()
+            issues = [issue for issue in issues if needle in ' '.join([issue['name'], issue['audit'], issue['department'], issue['owner'], issue['description_text']]).lower()]
+        total_issues = len(issues)
+        open_issues = len([issue for issue in issues if issue['state'] == 'open'])
+        overdue_issues = len([issue for issue in issues if issue['is_overdue']])
+        return {
+            'is_manager': is_admin,
+            'can_create_audit': Audit.check_access_rights('create', raise_exception=False),
+            'can_raise_issue': Issue.check_access_rights('create', raise_exception=False),
+            'audits': rows,
+            'issues': issues,
+            'metrics': {
+                'total': len(rows),
+                'under_review': len([row for row in rows if row['state'] == 'under_review']),
+                'completed': len([row for row in rows if row['state'] == 'completed']),
+                'open_issues': open_issues,
+                'overdue_issues': overdue_issues,
+                'resolution_rate': round((total_issues - open_issues) * 100.0 / total_issues) if total_issues else 0,
+            },
+            'audit_options': audit_options,
+            'departments': request.env['esg.department'].name_search('', limit=100) if is_admin else [],
+            'employees': request.env['hr.employee'].sudo().name_search('', limit=100) if is_admin else [],
+        }
+
+    @http.route('/ecosphere/api/audits/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def audit_create(self, values):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            raise ValidationError(_("Only an EcoSphere administrator can manage audits."))
+        cleaned = self._clean_values(request.env['esg.audit'], self.RESOURCES['audits'][1], values)
+        audit = request.env['esg.audit'].create(cleaned)
+        return {'id': audit.id, 'message': _("Audit created.")}
+
+    @http.route('/ecosphere/api/audits/<int:audit_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
+    def audit_update(self, audit_id, values):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            raise ValidationError(_("Only an EcoSphere administrator can manage audits."))
+        audit = request.env['esg.audit'].browse(audit_id).exists()
+        if not audit:
+            raise ValidationError(_("This audit no longer exists."))
+        cleaned = self._clean_values(request.env['esg.audit'], self.RESOURCES['audits'][1], values)
+        audit.write(cleaned)
+        return {'id': audit.id, 'message': _("Audit updated.")}
+
+    @http.route('/ecosphere/api/audits/<int:audit_id>/<string:action>', type='json', auth='user', methods=['POST'], csrf=False)
+    def audit_action(self, audit_id, action):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            raise ValidationError(_("Only an EcoSphere administrator can change audit status."))
+        audit = request.env['esg.audit'].browse(audit_id).exists()
+        if not audit:
+            raise ValidationError(_("This audit no longer exists."))
+        if action == 'complete':
+            audit.action_complete()
+            return {'message': _("Audit marked completed.")}
+        if action == 'reopen':
+            audit.action_reopen()
+            return {'message': _("Audit reopened for review.")}
+        raise ValidationError(_("Unknown audit action."))
+
+    @http.route('/ecosphere/api/compliance-issues/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def compliance_issue_create(self, values):
+        Issue = request.env['esg.compliance.issue']
+        cleaned = self._clean_values(Issue, self.RESOURCES['compliance-issues'][1], values)
+        issue = Issue.create(cleaned)
+        return {'id': issue.id, 'message': _("Compliance issue raised for review.")}
+
+    @http.route('/ecosphere/api/compliance-issues/<int:issue_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
+    def compliance_issue_update(self, issue_id, values):
+        issue = request.env['esg.compliance.issue'].browse(issue_id).exists()
+        if not issue:
+            raise ValidationError(_("This compliance issue no longer exists."))
+        cleaned = self._clean_values(request.env['esg.compliance.issue'], self.RESOURCES['compliance-issues'][1], values)
+        issue.write(cleaned)
+        return {'id': issue.id, 'message': _("Compliance issue updated.")}
+
+    @http.route('/ecosphere/api/compliance-issues/<int:issue_id>/<string:action>', type='json', auth='user', methods=['POST'], csrf=False)
+    def compliance_issue_action(self, issue_id, action):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            raise ValidationError(_("Only an EcoSphere administrator can review compliance issue status."))
+        issue = request.env['esg.compliance.issue'].browse(issue_id).exists()
+        if not issue:
+            raise ValidationError(_("This compliance issue no longer exists."))
+        if action == 'resolve':
+            issue.action_resolve()
+            return {'message': _("Compliance issue resolved.")}
+        if action == 'reopen':
+            issue.action_reopen()
+            return {'message': _("Compliance issue reopened.")}
+        raise ValidationError(_("Unknown compliance issue action."))
+
+    @http.route('/ecosphere/api/audit-workspace/export', type='json', auth='user', methods=['POST'], csrf=False)
+    def audit_workspace_export(self, audit_id=None, department_id=None, issue_status='all', severity='all'):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            raise ValidationError(_("Only an EcoSphere administrator can export audit data."))
+        data = self.audit_workspace(status='all', issue_status=issue_status, severity=severity, department_id=department_id, audit_id=audit_id)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(['Audit', 'Department', 'Auditor', 'Audit Date', 'Audit Status', 'Issue', 'Severity', 'Owner', 'Due Date', 'Issue Status', 'Overdue'])
+        for audit in data['audits']:
+            if audit['issues']:
+                for issue in audit['issues']:
+                    writer.writerow([audit['name'], audit['department'], audit['auditor'], audit['audit_date'], audit['state'], issue['name'], issue['severity'], issue['owner'], issue['due_date'], issue['state'], 'Yes' if issue['is_overdue'] else 'No'])
+            else:
+                writer.writerow([audit['name'], audit['department'], audit['auditor'], audit['audit_date'], audit['state'], '', '', '', '', '', ''])
+        return {'filename': 'audit-workspace.csv', 'csv': buffer.getvalue()}
+
     @http.route('/ecosphere/api/team', type='json', auth='user', methods=['POST'], csrf=False)
     def team_list(self):
         self._require_manager()
@@ -879,7 +1064,7 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
-        scores = request.env['esg.department.score']
+        scores = request.env['esg.department.score'].sudo()
         scores.action_recalculate_all()
         latest = {}
         for score in scores.search([], order='score_date desc, id desc'):
@@ -889,6 +1074,7 @@ class EcoSphereAPI(http.Controller):
         return request.make_json_response({
             'user': {
                 'name': request.env.user.name,
+                'email': request.env.user.login,
                 'initials': ''.join(part[:1] for part in request.env.user.name.split()[:2]).upper(),
                 'role': 'ESG Manager' if request.env.user.has_group('eco_sphere_esg.group_esg_manager') else 'ESG User',
                 'workspace': request.env.company.name,

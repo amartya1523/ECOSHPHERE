@@ -38,4 +38,40 @@
     <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
     <field name="groups" eval="[(4, ref('group_esg_user'))]"/>
   </record>
+
+  <record id="rule_esg_audit_admin_all" model="ir.rule">
+    <field name="name">ESG audit admin access</field>
+    <field name="model_id" ref="model_esg_audit"/>
+    <field name="domain_force">[(1, '=', 1)]</field>
+    <field name="groups" eval="[(4, ref('group_esg_admin'))]"/>
+  </record>
+
+  <record id="rule_esg_audit_employee_visible" model="ir.rule">
+    <field name="name">ESG audit employee assigned access</field>
+    <field name="model_id" ref="model_esg_audit"/>
+    <field name="domain_force">[
+      '|',
+      ('auditor_id.user_id', '=', user.id),
+      ('department_id', 'child_of', user.employee_id.esg_department_id and [user.employee_id.esg_department_id.id] or [0])
+    ]</field>
+    <field name="groups" eval="[(4, ref('group_esg_user'))]"/>
+  </record>
+
+  <record id="rule_esg_issue_admin_all" model="ir.rule">
+    <field name="name">ESG compliance issue admin access</field>
+    <field name="model_id" ref="model_esg_compliance_issue"/>
+    <field name="domain_force">[(1, '=', 1)]</field>
+    <field name="groups" eval="[(4, ref('group_esg_admin'))]"/>
+  </record>
+
+  <record id="rule_esg_issue_employee_visible" model="ir.rule">
+    <field name="name">ESG compliance issue employee visible access</field>
+    <field name="model_id" ref="model_esg_compliance_issue"/>
+    <field name="domain_force">[
+      '|',
+      ('owner_id.user_id', '=', user.id),
+      ('create_uid', '=', user.id)
+    ]</field>
+    <field name="groups" eval="[(4, ref('group_esg_user'))]"/>
+  </record>
 </odoo>
