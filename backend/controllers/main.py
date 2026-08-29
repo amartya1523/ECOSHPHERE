@@ -1,3 +1,5 @@
+import base64
+
 from odoo import http, _
 from odoo.http import request
 from odoo.exceptions import ValidationError
@@ -65,6 +67,13 @@ class EcoSphereAPI(http.Controller):
     def _require_manager(self):
         if not request.env.user.has_group('eco_sphere_esg.group_esg_manager'):
             raise ValidationError(_("Only an EcoSphere administrator can manage employee access."))
+
+    @staticmethod
+    def _player_config(challenge):
+        config = challenge.game_config or {}
+        if challenge.challenge_type in {"quiz", "scenario"}:
+            return {**config, "questions": [{key: value for key, value in question.items() if key != "answer"} for question in config.get("questions", [])]}
+        return config
 
     @http.route('/ecosphere/api/resources/<string:slug>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_list(self, slug, limit=100, query=None):
@@ -180,7 +189,7 @@ class EcoSphereAPI(http.Controller):
         employee = request.env.user.employee_id
         Challenge = request.env['esg.challenge']
         Participation = request.env['esg.challenge.participation']
-        domain = [] if is_manager else [('state', '=', 'active')]
+        domain = [('is_template', '=', False)] + ([] if is_manager else [('state', '=', 'active')])
         challenges = Challenge.search(domain, order='deadline asc, id desc')
         own_participation = {}
         if employee:
@@ -197,10 +206,12 @@ class EcoSphereAPI(http.Controller):
                 'xp_value': challenge.xp_value,
                 'difficulty': challenge.difficulty,
                 'evidence_required': challenge.evidence_required,
+                'challenge_type': challenge.challenge_type,
+                'game_config': challenge.game_config if is_manager else self._player_config(challenge),
                 'deadline': str(challenge.deadline or ''),
                 'state': challenge.state,
                 'participants': Participation.sudo().search_count([('challenge_id', '=', challenge.id)]),
-                'participation': {'id': joined.id, 'state': joined.state, 'progress': joined.progress} if joined else False,
+                'participation': {'id': joined.id, 'state': joined.state, 'progress': joined.progress, 'eligibility_status': joined.eligibility_status, 'verification_reason': joined.verification_reason or ''} if joined else False,
             })
         awarded = request.env['esg.badge.award'].sudo()
         badges = request.env['esg.badge'].search([])
@@ -210,7 +221,13 @@ class EcoSphereAPI(http.Controller):
             totals[row.employee_id.id] = totals.get(row.employee_id.id, {'name': row.employee_id.name, 'xp': 0})
             totals[row.employee_id.id]['xp'] += row.xp_awarded
         leaderboard = [dict(value, rank=index + 1) for index, value in enumerate(sorted(totals.values(), key=lambda item: item['xp'], reverse=True)[:5])]
-        return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'leaderboard': leaderboard}
+        templates = []
+        reviews = []
+        if is_manager:
+            templates = [{'id': row.id, 'name': row.name, 'description': row.description or '', 'xp_value': row.xp_value, 'difficulty': row.difficulty, 'challenge_type': row.challenge_type, 'game_config': row.game_config or {}} for row in Challenge.search([('is_template', '=', True)], order='id')]
+            for row in Participation.search([('state', '=', 'under_review')], order='create_date desc', limit=50):
+                reviews.append({'id': row.id, 'employee': row.employee_id.name, 'challenge': row.challenge_id.name, 'proof': row.proof.decode() if row.proof else False, 'proof_filename': row.proof_filename or '', 'reason': row.verification_reason or ''})
+        return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'leaderboard': leaderboard, 'templates': templates, 'reviews': reviews}
 
     @http.route('/ecosphere/api/gamification/challenges/create', type='json', auth='user', methods=['POST'], csrf=False)
     def gamification_create_challenge(self, name, description, xp_value, difficulty, deadline, state='active'):
@@ -221,9 +238,18 @@ class EcoSphereAPI(http.Controller):
             raise ValidationError(_("Invalid challenge status or difficulty."))
         challenge = request.env['esg.challenge'].create({
             'name': name.strip(), 'description': description.strip(), 'xp_value': max(int(xp_value or 0), 0),
-            'difficulty': difficulty, 'deadline': deadline, 'state': state,
+            'difficulty': difficulty, 'deadline': deadline, 'state': state, 'challenge_type': 'action',
         })
         return {'id': challenge.id, 'message': _("Challenge created.")}
+
+    @http.route('/ecosphere/api/gamification/templates/<int:template_id>/publish', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification_publish_template(self, template_id, deadline, name=None, state='active'):
+        self._require_manager()
+        template = request.env['esg.challenge'].browse(template_id).exists()
+        if not template or not template.is_template or not deadline or state not in {'draft', 'active'}:
+            raise ValidationError(_("Select a valid template, publication state, and deadline."))
+        challenge = template.copy({'name': (name or template.name).strip(), 'deadline': deadline, 'state': state, 'is_template': False})
+        return {'id': challenge.id, 'message': _("Challenge published to the employee portal.")}
 
     @http.route('/ecosphere/api/gamification/challenges/<int:challenge_id>/join', type='json', auth='user', methods=['POST'], csrf=False)
     def gamification_join_challenge(self, challenge_id):
@@ -238,6 +264,75 @@ class EcoSphereAPI(http.Controller):
             raise ValidationError(_("You have already joined this challenge."))
         participation = Participation.create({'challenge_id': challenge.id, 'employee_id': employee.id})
         return {'id': participation.id, 'message': _("You joined the challenge. Start making progress!")}
+
+    @http.route('/ecosphere/api/gamification/participations/<int:participation_id>/play', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification_play(self, participation_id, payload=None):
+        participation = request.env['esg.challenge.participation'].browse(participation_id).exists()
+        if not participation or participation.employee_id != request.env.user.employee_id:
+            raise ValidationError(_("You can only complete your own challenge participation."))
+        if participation.state in {'approved', 'rejected'}:
+            raise ValidationError(_("This challenge submission has already been finalised."))
+        payload = payload or {}
+        challenge = participation.challenge_id
+        config = challenge.game_config or {}
+        if challenge.challenge_type in {'quiz', 'scenario'}:
+            questions = config.get('questions', [])
+            answers = payload.get('answers', {}) if isinstance(payload, dict) else {}
+            if not questions or len(answers) != len(questions):
+                raise ValidationError(_("Answer every question before submitting."))
+            correct = sum(1 for index, question in enumerate(questions) if str(answers.get(str(index))) == str(question.get('answer')))
+            score = round((correct / len(questions)) * 100)
+            required = int(config.get('pass_score', 80))
+            values = {'activity_data': {'answers': answers, 'score': score}, 'attempt_count': participation.attempt_count + 1, 'progress': score}
+            if score >= required:
+                participation.write(values)
+                participation._award()
+                return {'message': _("Great work — you passed and earned %(xp)s XP.") % {'xp': challenge.xp_value}, 'status': 'eligible'}
+            values.update({'eligibility_status': 'not_eligible', 'verification_reason': _("Score %(score)s%%. %(required)s%% is required to earn XP.") % {'score': score, 'required': required}})
+            participation.write(values)
+            return {'message': _("Not eligible for XP yet. Review the material and try again."), 'status': 'not_eligible'}
+        if challenge.challenge_type == 'checklist':
+            completed = payload.get('completed_items', []) if isinstance(payload, dict) else []
+            items = config.get('items', [])
+            if len(set(completed)) < len(items):
+                raise ValidationError(_("Complete every checklist action before submitting."))
+            participation.write({'activity_data': {'completed_items': completed}, 'progress': 100})
+            participation._award()
+            return {'message': _("Checklist completed — %(xp)s XP awarded.") % {'xp': challenge.xp_value}, 'status': 'eligible'}
+        if challenge.challenge_type == 'photo':
+            proof = payload.get('proof') if isinstance(payload, dict) else False
+            filename = (payload.get('filename') if isinstance(payload, dict) else '') or 'plant-photo.jpg'
+            try:
+                decoded = base64.b64decode(proof or '', validate=True)
+            except Exception:
+                raise ValidationError(_("Upload a valid JPG or PNG photo."))
+            if not decoded or len(decoded) > 5 * 1024 * 1024:
+                raise ValidationError(_("Photos must be between 1 byte and 5 MB."))
+            status, reason, confidence = participation._validate_photo_with_vision(proof, filename)
+            participation.write({'proof': proof, 'proof_filename': filename[:255], 'activity_data': {'vision_confidence': confidence}, 'progress': 100, 'eligibility_status': status, 'verification_reason': reason})
+            if status == 'eligible':
+                participation._award()
+                return {'message': _("Plant verified — %(xp)s XP awarded.") % {'xp': challenge.xp_value}, 'status': status}
+            if status == 'not_eligible':
+                participation.write({'state': 'rejected'})
+                return {'message': _("Not eligible for promotion: %(reason)s") % {'reason': reason}, 'status': status}
+            participation.write({'state': 'under_review'})
+            return {'message': _("Photo submitted for administrator review."), 'status': status}
+        participation.write({'activity_data': payload, 'progress': 100, 'state': 'under_review', 'eligibility_status': 'pending_review'})
+        return {'message': _("Action submitted for administrator review."), 'status': 'pending_review'}
+
+    @http.route('/ecosphere/api/gamification/participations/<int:participation_id>/review', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification_review(self, participation_id, approved, note=None):
+        self._require_manager()
+        participation = request.env['esg.challenge.participation'].browse(participation_id).exists()
+        if not participation or participation.state != 'under_review':
+            raise ValidationError(_("This submission is no longer awaiting review."))
+        if approved:
+            participation.write({'verification_reason': (note or _("Approved by administrator."))[:500]})
+            participation._award()
+            return {'message': _("Submission approved and XP awarded.")}
+        participation.write({'state': 'rejected', 'eligibility_status': 'not_eligible', 'verification_reason': (note or _("Not eligible for promotion: the evidence does not meet this challenge's criteria."))[:500]})
+        return {'message': _("Submission marked not eligible.")}
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):

@@ -46,3 +46,6 @@ export const createTeamMember = (name, email, password, department_id) => rpc('/
 export const getGamification = () => rpc('/ecosphere/api/gamification');
 export const createChallenge = (values) => rpc('/ecosphere/api/gamification/challenges/create', values);
 export const joinChallenge = (id) => rpc(`/ecosphere/api/gamification/challenges/${id}/join`);
+export const publishChallengeTemplate = (id, values) => rpc(`/ecosphere/api/gamification/templates/${id}/publish`, values);
+export const playChallenge = (id, payload) => rpc(`/ecosphere/api/gamification/participations/${id}/play`, {payload});
+export const reviewChallenge = (id, approved, note) => rpc(`/ecosphere/api/gamification/participations/${id}/review`, {approved, note});

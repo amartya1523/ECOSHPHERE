@@ -1,3 +1,8 @@
+import base64
+import json
+import os
+from urllib import request as urlrequest
+
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
@@ -17,6 +22,13 @@ class ESGChallenge(models.Model):
         required=True, default="medium",
     )
     evidence_required = fields.Boolean(default=False)
+    is_template = fields.Boolean(default=False, index=True, help="Private reusable challenge blueprint for administrators.")
+    challenge_type = fields.Selection([
+        ("quiz", "Knowledge quiz"), ("scenario", "Decision scenario"),
+        ("checklist", "Action checklist"), ("photo", "Photo evidence"),
+        ("action", "Self-reported action"),
+    ], required=True, default="action")
+    game_config = fields.Json(default=dict, help="Challenge rules and content. Correct quiz answers never leave the server.")
     deadline = fields.Date(required=True)
     state = fields.Selection(
         [
@@ -78,6 +90,13 @@ class ESGChallengeParticipation(models.Model):
         default="joined", tracking=True,
     )
     xp_awarded = fields.Integer(default=0, readonly=True)
+    activity_data = fields.Json(default=dict, readonly=True)
+    attempt_count = fields.Integer(default=0, readonly=True)
+    eligibility_status = fields.Selection([
+        ("not_started", "Not started"), ("pending_review", "Pending review"),
+        ("eligible", "Eligible"), ("not_eligible", "Not eligible"),
+    ], default="not_started", readonly=True)
+    verification_reason = fields.Text(readonly=True)
     _sql_constraints = [
         (
             "esg_challenge_participation_unique",
@@ -102,7 +121,7 @@ class ESGChallengeParticipation(models.Model):
         params = self.env["ir.config_parameter"].sudo()
         notify = params.get_param("eco_sphere_esg.challenge_notifications", "True") == "True"
         for record in self:
-            record.write({"state": "approved", "xp_awarded": record.challenge_id.xp_value})
+            record.write({"state": "approved", "eligibility_status": "eligible", "xp_awarded": record.challenge_id.xp_value})
             if notify:
                 record.message_post(
                     body=_(
@@ -115,11 +134,56 @@ class ESGChallengeParticipation(models.Model):
         params = self.env["ir.config_parameter"].sudo()
         notify = params.get_param("eco_sphere_esg.challenge_notifications", "True") == "True"
         for record in self:
-            record.write({"state": "rejected"})
+            record.write({"state": "rejected", "eligibility_status": "not_eligible"})
             if notify:
                 record.message_post(
                     body=_("Challenge participation rejected for %s.") % record.employee_id.name
                 )
+
+    def _award(self):
+        """Approve a verified activity once, then award its configured XP."""
+        for record in self:
+            if record.state == "approved":
+                continue
+            record.write({
+                "state": "approved", "eligibility_status": "eligible",
+                "xp_awarded": record.challenge_id.xp_value,
+            })
+            record._auto_award_badges()
+
+    def _validate_photo_with_vision(self, proof, filename):
+        """Use configured server-side vision, otherwise require an honest human review."""
+        self.ensure_one()
+        if not proof:
+            return "pending_review", _("No photo was received; an administrator must review this submission."), 0.0
+        params = self.env["ir.config_parameter"].sudo()
+        api_key = params.get_param("eco_sphere_esg.vision_api_key") or os.getenv("ECOSPHERE_VISION_API_KEY")
+        if not api_key:
+            return "pending_review", _("Photo received. Automatic plant verification is not configured, so this is waiting for administrator review."), 0.0
+        try:
+            image_data = proof.decode() if isinstance(proof, bytes) else proof
+            prompt = (self.challenge_id.game_config or {}).get("vision_prompt") or "Does this image clearly contain a real plant?"
+            payload = {
+                "model": params.get_param("eco_sphere_esg.vision_model", "gpt-4.1-mini"),
+                "input": [{"role": "user", "content": [
+                    {"type": "input_text", "text": f"{prompt} Return only JSON: {{\"eligible\": true|false, \"confidence\": 0-1, \"reason\": \"short explanation\"}}."},
+                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_data}"},
+                ]}],
+            }
+            req = urlrequest.Request("https://api.openai.com/v1/responses", data=json.dumps(payload).encode(), headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            response = json.loads(urlrequest.urlopen(req, timeout=20).read().decode())
+            text = response.get("output_text", "")
+            if not text:
+                text = "".join(part.get("text", "") for output in response.get("output", []) for part in output.get("content", []) if part.get("type") == "output_text")
+            text = text.strip().removeprefix("```json").removesuffix("```").strip()
+            verdict = json.loads(text)
+            confidence = float(verdict.get("confidence", 0))
+            reason = str(verdict.get("reason") or _("Image reviewed."))[:500]
+            if verdict.get("eligible") is True and confidence >= 0.80:
+                return "eligible", reason, confidence
+            return "not_eligible", reason or _("A plant could not be confidently verified in this photo."), confidence
+        except Exception:
+            return "pending_review", _("Photo received, but automated verification was unavailable. It is waiting for administrator review."), 0.0
 
     def _auto_award_badges(self):
         """Check if any badges should be unlocked after this approval."""
