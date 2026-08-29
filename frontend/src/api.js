@@ -3,6 +3,27 @@ const DEFAULT_ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere-db';
 
 let clientConfigPromise;
 
+class SessionExpiredError extends Error {
+  constructor() {
+    super('Your session expired. Please sign in again.');
+    this.name = 'SessionExpiredError';
+  }
+}
+
+class NonJsonResponseError extends Error {
+  constructor(message, responseText) {
+    super(message);
+    this.name = 'NonJsonResponseError';
+    this.responseText = responseText;
+  }
+}
+
+function notifySessionExpired() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ecosphere:session-expired'));
+  }
+}
+
 async function getClientConfig() {
   if (!clientConfigPromise) {
     clientConfigPromise = fetch('/ecosphere/frontend-config.json', {cache: 'no-store'})
@@ -28,13 +49,24 @@ async function readJson(response, fallbackMessage) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`${fallbackMessage} Backend did not return JSON. Make sure the Vite proxy is reaching Odoo.`);
+    if (/<!doctype html|<html[\s>]/i.test(text)) {
+      if (/\/web\/login|session expired|login/i.test(text)) {
+        notifySessionExpired();
+        throw new SessionExpiredError();
+      }
+      throw new NonJsonResponseError(`${fallbackMessage} The backend returned an HTML page instead of API data. Please refresh and try again.`, text);
+    }
+    throw new NonJsonResponseError(`${fallbackMessage} Backend did not return valid JSON. Please refresh and try again.`, text);
   }
 }
 
 function throwJsonRpcError(body, fallbackMessage) {
   if (body?.error) {
     const message = body.error.data?.message || body.error.message || fallbackMessage;
+    if (/session expired/i.test(message) || body.error.data?.name === 'odoo.http.SessionExpiredException') {
+      notifySessionExpired();
+      throw new SessionExpiredError();
+    }
     if (message === 'Access Denied') {
       throw new Error('Incorrect email or password.');
     }
@@ -43,6 +75,11 @@ function throwJsonRpcError(body, fallbackMessage) {
     }
     throw new Error(message);
   }
+}
+
+async function fetchJson(url, options, fallbackMessage) {
+  const response = await fetch(url, options);
+  return {response, body: await readJson(response, fallbackMessage)};
 }
 
 export async function signIn(login, password) {
@@ -79,11 +116,20 @@ export async function getDashboard() {
 
 async function rpc(path, params = {}) {
   const {base} = await getClientConfig();
-  const response = await fetch(`${base}${path}`, {
+  const options = {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method: 'call', params}),
-  });
-  const body = await readJson(response, 'The EcoSphere service could not complete that request.');
+  };
+  let response;
+  let body;
+  try {
+    ({response, body} = await fetchJson(`${base}${path}`, options, 'The EcoSphere service could not complete that request.'));
+  } catch (error) {
+    if (!(error instanceof NonJsonResponseError) || base === '' || base === '/') {
+      throw error;
+    }
+    ({response, body} = await fetchJson(path, options, 'The EcoSphere service could not complete that request.'));
+  }
   throwJsonRpcError(body, 'The EcoSphere service could not complete that request.');
   if (!response.ok) throw new Error('The EcoSphere service could not complete that request.');
   return body.result;
