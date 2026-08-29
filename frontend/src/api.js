@@ -71,7 +71,7 @@ function throwJsonRpcError(body, fallbackMessage) {
       throw new Error('Incorrect email or password.');
     }
     if (message === 'Database not found.') {
-      throw new Error('EcoSphere database is not running. Start Docker/Odoo and use the ecosphere-db database.');
+      throw new Error('EcoSphere database is not running. Start Docker/Odoo and use the ecosphere_db database.');
     }
     throw new Error(message);
   }
@@ -140,6 +140,11 @@ export const getRelationOptions = (slug, field, query) => rpc(`/ecosphere/api/re
 export const createResource = (slug, values) => rpc(`/ecosphere/api/resources/${slug}/create`, {values});
 export const updateResource = (slug, id, values) => rpc(`/ecosphere/api/resources/${slug}/${id}/update`, {values});
 export const deleteResource = (slug, id) => rpc(`/ecosphere/api/resources/${slug}/${id}/delete`);
+export const runPolicyAction = (id, action) => rpc(`/ecosphere/api/policies/${id}/${action}`);
+export const acknowledgePolicy = id => rpc(`/ecosphere/api/policy-acknowledgements/${id}/acknowledge`);
+export const getPolicyWorkspace = filters => rpc('/ecosphere/api/policy-workspace', filters || {});
+export const remindPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/remind', filters || {});
+export const exportPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/export', filters || {});
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
 export const getSettings = () => rpc('/ecosphere/api/settings');

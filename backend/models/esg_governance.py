@@ -1,5 +1,5 @@
 from odoo import api, fields, models, _
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
 
 class ESGPolicy(models.Model):
@@ -10,27 +10,181 @@ class ESGPolicy(models.Model):
 
     name = fields.Char(required=True)
     reference = fields.Char(required=True, copy=False)
+    category_id = fields.Many2one(
+        "esg.category",
+        domain=[("category_type", "=", "governance")],
+        string="Category",
+    )
+    version = fields.Char(required=True, default="v1.0")
     content = fields.Html(required=True)
     document = fields.Binary(attachment=True)
     document_filename = fields.Char()
     effective_date = fields.Date(required=True, default=fields.Date.context_today)
+    acknowledgement_required = fields.Boolean(default=True, tracking=True)
+    assignment_type = fields.Selection([
+        ("all", "All Employees"),
+        ("department", "Department"),
+        ("employee", "Specific Employee"),
+    ], required=True, default="all", tracking=True)
+    assignment_department_id = fields.Many2one("esg.department", string="Assigned Department")
+    assignment_employee_id = fields.Many2one("hr.employee", string="Assigned Employee")
     state = fields.Selection([
         ("draft", "Draft"),
+        ("published", "Published"),
+        ("active", "Active"),
         ("effective", "Effective"),
         ("archived", "Archived"),
     ], required=True, default="draft", tracking=True)
     active = fields.Boolean(default=True)
     acknowledgement_ids = fields.One2many("esg.policy.acknowledgement", "policy_id")
+    acknowledgement_total = fields.Integer(compute="_compute_acknowledgement_progress")
+    acknowledged_count = fields.Integer(compute="_compute_acknowledgement_progress")
+    pending_count = fields.Integer(compute="_compute_acknowledgement_progress")
+    acknowledgement_progress = fields.Float(compute="_compute_acknowledgement_progress")
     _sql_constraints = [("esg_policy_reference_unique", "unique(reference)", "Policy reference must be unique.")]
 
+    def _is_esg_admin(self):
+        return self.env.su or self.env.is_superuser() or self.env.user.has_group("eco_sphere_esg.group_esg_admin")
+
+    def _require_esg_admin(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can manage policies."))
+
+    @api.depends("acknowledgement_ids.state", "acknowledgement_required")
+    def _compute_acknowledgement_progress(self):
+        for policy in self:
+            if not policy.acknowledgement_required:
+                policy.acknowledgement_total = 0
+                policy.acknowledged_count = 0
+                policy.pending_count = 0
+                policy.acknowledgement_progress = 0.0
+                continue
+            total = len(policy.acknowledgement_ids)
+            acknowledged = len(policy.acknowledgement_ids.filtered(lambda row: row.state == "acknowledged"))
+            policy.acknowledgement_total = total
+            policy.acknowledged_count = acknowledged
+            policy.pending_count = max(total - acknowledged, 0)
+            policy.acknowledgement_progress = acknowledged * 100.0 / total if total else 0.0
+
+    def _target_employees(self):
+        Employee = self.env["hr.employee"].sudo()
+        self.ensure_one()
+        if self.assignment_type == "employee":
+            return self.assignment_employee_id
+        if self.assignment_type == "department":
+            if not self.assignment_department_id:
+                return Employee.browse()
+            return Employee.search([("esg_department_id", "child_of", self.assignment_department_id.id), ("user_id", "!=", False)])
+        user_group = self.env.ref("eco_sphere_esg.group_esg_user", raise_if_not_found=False)
+        domain = [("user_id", "!=", False)]
+        if user_group:
+            domain.append(("user_id.groups_id", "in", user_group.id))
+        return Employee.search(domain)
+
+    def _sync_acknowledgements(self):
+        Acknowledgement = self.env["esg.policy.acknowledgement"].sudo()
+        for policy in self:
+            if not policy.acknowledgement_required or policy.state not in {"published", "active", "effective"}:
+                continue
+            for employee in policy._target_employees():
+                if not Acknowledgement.search_count([("policy_id", "=", policy.id), ("employee_id", "=", employee.id)]):
+                    Acknowledgement.create({"policy_id": policy.id, "employee_id": employee.id})
+
+    @api.constrains("name", "version", "effective_date", "assignment_type", "assignment_department_id", "assignment_employee_id")
+    def _check_policy_required_fields(self):
+        for policy in self:
+            if not (policy.name or "").strip():
+                raise ValidationError(_("Policy title is required."))
+            if not (policy.version or "").strip():
+                raise ValidationError(_("Policy version is required."))
+            if not policy.effective_date:
+                raise ValidationError(_("Effective date is required."))
+            if policy.assignment_type == "department" and not policy.assignment_department_id:
+                raise ValidationError(_("Choose the department assigned to this policy."))
+            if policy.assignment_type == "employee" and not policy.assignment_employee_id:
+                raise ValidationError(_("Choose the employee assigned to this policy."))
+
+    @api.model_create_multi
+    def create(self, values_list):
+        self._require_esg_admin()
+        for values in values_list:
+            if not values.get("reference"):
+                base = "".join(character for character in (values.get("name") or "POL").upper() if character.isalnum())[:8] or "POL"
+                version = "".join(character for character in (values.get("version") or "V1").upper() if character.isalnum())[:6]
+                reference = "%s-%s" % (base, version)
+                counter = 2
+                while self.sudo().search_count([("reference", "=", reference)]):
+                    reference = "%s-%s-%s" % (base, version, counter)
+                    counter += 1
+                values["reference"] = reference
+        policies = super().create(values_list)
+        policies._sync_acknowledgements()
+        return policies
+
+    def write(self, values):
+        admin_only = set(values) - {"message_follower_ids", "message_ids"}
+        if admin_only:
+            self._require_esg_admin()
+        previous_states = {policy.id: policy.state for policy in self}
+        result = super().write(values)
+        if {"state", "assignment_type", "assignment_department_id", "assignment_employee_id", "acknowledgement_required"}.intersection(values):
+            self._sync_acknowledgements()
+        if "state" in values:
+            for policy in self:
+                if previous_states.get(policy.id) == "archived" and policy.state != "archived":
+                    raise ValidationError(_("Archived policies cannot be reopened. Create a new version instead."))
+        return result
+
+    def unlink(self):
+        self._require_esg_admin()
+        return super().unlink()
+
     def action_make_effective(self):
-        self.write({"state": "effective"})
+        self.action_activate()
+
+    def action_publish(self):
+        for policy in self:
+            if policy.state != "draft":
+                raise ValidationError(_("Only draft policies can be published."))
+        self.write({"state": "published"})
+        self._post_assignment_notifications(_("New policy assigned: %s"))
+
+    def action_activate(self):
+        for policy in self:
+            if policy.state not in {"draft", "published"}:
+                raise ValidationError(_("Only draft or published policies can be activated."))
+        self.write({"state": "active"})
+        self._post_assignment_notifications(_("Policy is active: %s"))
+
+    def action_archive(self):
+        for policy in self:
+            if policy.state == "archived":
+                continue
+            policy.write({"state": "archived", "active": False})
+
+    def action_send_acknowledgement_reminders(self):
+        self._require_esg_admin()
+        total = 0
+        for policy in self:
+            pending = policy.acknowledgement_ids.filtered(lambda row: row.state == "pending")
+            for acknowledgement in pending:
+                acknowledgement.message_post(body=_("Reminder: please acknowledge policy %s.") % policy.display_name)
+            total += len(pending)
+        return total
+
+    def _post_assignment_notifications(self, template):
+        notifications_enabled = self.env["ir.config_parameter"].sudo().get_param("eco_sphere_esg.policy_notifications", "True") == "True"
+        if not notifications_enabled:
+            return
+        for policy in self.filtered("acknowledgement_required"):
+            for acknowledgement in policy.acknowledgement_ids.filtered(lambda row: row.state == "pending"):
+                acknowledgement.message_post(body=template % policy.display_name)
 
     @api.model
     def _cron_send_acknowledgement_reminders(self):
         pending = self.env["esg.policy.acknowledgement"].search([
             ("state", "=", "pending"),
-            ("policy_id.state", "=", "effective"),
+            ("policy_id.state", "in", ["published", "active", "effective"]),
         ])
         for acknowledgement in pending:
             acknowledgement.message_post(
@@ -49,11 +203,46 @@ class ESGPolicyAcknowledgement(models.Model):
     employee_id = fields.Many2one("hr.employee", required=True, default=lambda self: self.env.user.employee_id)
     acknowledged_on = fields.Datetime(readonly=True)
     state = fields.Selection([("pending", "Pending"), ("acknowledged", "Acknowledged")], default="pending", required=True)
+    department_id = fields.Many2one(related="employee_id.esg_department_id", store=True, readonly=True)
+    policy_version = fields.Char(related="policy_id.version", store=True, readonly=True)
     _sql_constraints = [("esg_policy_employee_unique", "unique(policy_id, employee_id)", "This employee has already been assigned this policy.")]
 
+    def _is_esg_admin(self):
+        return self.env.su or self.env.is_superuser() or self.env.user.has_group("eco_sphere_esg.group_esg_admin")
+
+    def _is_own_acknowledgement(self):
+        return bool(self.env.user.employee_id) and all(row.employee_id == self.env.user.employee_id for row in self)
+
+    @api.model_create_multi
+    def create(self, values_list):
+        if not self._is_esg_admin() and not self.env.su:
+            raise AccessError(_("Only an EcoSphere administrator can assign policy acknowledgements."))
+        return super().create(values_list)
+
+    def write(self, values):
+        if self.env.su:
+            return super().write(values)
+        if self._is_esg_admin():
+            return super().write(values)
+        if set(values) <= {"state", "acknowledged_on"} and values.get("state") == "acknowledged" and self._is_own_acknowledgement():
+            return super().write(values)
+        raise AccessError(_("You can only acknowledge your own assigned policies."))
+
+    def unlink(self):
+        if not self._is_esg_admin():
+            raise AccessError(_("Only an EcoSphere administrator can remove acknowledgement records."))
+        return super().unlink()
+
     def action_acknowledge(self):
-        self.write({"state": "acknowledged", "acknowledged_on": fields.Datetime.now()})
-        self.message_post(body=_("Policy acknowledged by %s.") % self.employee_id.name)
+        for acknowledgement in self:
+            if acknowledgement.employee_id != self.env.user.employee_id and not acknowledgement._is_esg_admin():
+                raise AccessError(_("You can only acknowledge your own assigned policies."))
+            if acknowledgement.policy_id.state not in {"active", "effective"}:
+                raise ValidationError(_("Only active policies can be acknowledged."))
+            if acknowledgement.state == "acknowledged":
+                continue
+            acknowledgement.write({"state": "acknowledged", "acknowledged_on": fields.Datetime.now()})
+            acknowledgement.message_post(body=_("Policy acknowledged by %s.") % acknowledgement.employee_id.name)
 
 
 class ESGAudit(models.Model):

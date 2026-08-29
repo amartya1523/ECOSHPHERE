@@ -4,13 +4,13 @@ services:
     container_name: ecosphere-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ecosphere_db}
       POSTGRES_USER: ${POSTGRES_USER:-odoo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
     volumes:
       - ecosphere-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-ecosphere_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
