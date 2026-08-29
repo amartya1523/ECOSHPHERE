@@ -30,40 +30,73 @@ class ESGCSRParticipation(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc"
 
-    employee_id = fields.Many2one("hr.employee", required=True, default=lambda self: self.env.user.employee_id)
+    employee_id = fields.Many2one(
+        "hr.employee", required=True, default=lambda self: self.env.user.employee_id
+    )
     activity_id = fields.Many2one("esg.csr.activity", required=True, ondelete="cascade")
     proof = fields.Binary(attachment=True)
     proof_filename = fields.Char()
-    state = fields.Selection([
-        ("draft", "Draft"),
-        ("submitted", "Submitted"),
-        ("approved", "Approved"),
-        ("rejected", "Rejected"),
-    ], default="draft", required=True, tracking=True)
+    state = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("submitted", "Submitted"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        default="draft", required=True, tracking=True,
+    )
     points_earned = fields.Integer(related="activity_id.points", readonly=True)
     completion_date = fields.Date(default=fields.Date.context_today)
-    _sql_constraints = [("esg_csr_employee_activity_unique", "unique(employee_id, activity_id)", "An employee can join an activity only once.")]
+    _sql_constraints = [
+        (
+            "esg_csr_employee_activity_unique",
+            "unique(employee_id, activity_id)",
+            "An employee can join an activity only once.",
+        )
+    ]
 
     @api.constrains("state", "proof", "activity_id")
     def _check_approval_evidence(self):
-        require_evidence = self.env["ir.config_parameter"].sudo().get_param(
-            "eco_sphere_esg.require_csr_evidence", "False"
-        ) == "True"
+        require_evidence = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("eco_sphere_esg.require_csr_evidence", "False")
+            == "True"
+        )
         for participation in self:
-            if participation.state == "approved" and (require_evidence or participation.activity_id.evidence_required) and not participation.proof:
-                raise ValidationError(_("Evidence is required before this participation can be approved."))
+            if (
+                participation.state == "approved"
+                and (require_evidence or participation.activity_id.evidence_required)
+                and not participation.proof
+            ):
+                raise ValidationError(
+                    _("Evidence is required before this participation can be approved.")
+                )
 
     def action_submit(self):
         self.write({"state": "submitted"})
 
     def action_approve(self):
+        params = self.env["ir.config_parameter"].sudo()
+        notify = params.get_param("eco_sphere_esg.csr_notifications", "True") == "True"
         for participation in self:
             participation.state = "approved"
-            participation.message_post(body=_("Participation approved."))
+            if notify:
+                participation.message_post(
+                    body=_(
+                        "CSR participation approved for %s on activity '%s'."
+                    ) % (participation.employee_id.name, participation.activity_id.name)
+                )
 
     def action_reject(self):
+        params = self.env["ir.config_parameter"].sudo()
+        notify = params.get_param("eco_sphere_esg.csr_notifications", "True") == "True"
         self.write({"state": "rejected"})
-        self.message_post(body=_("Participation rejected."))
+        if notify:
+            for participation in self:
+                participation.message_post(
+                    body=_("CSR participation rejected for %s.") % participation.employee_id.name
+                )
 
 
 class ESGDiversityMetric(models.Model):
@@ -72,13 +105,16 @@ class ESGDiversityMetric(models.Model):
     _order = "period desc, department_id"
 
     department_id = fields.Many2one("esg.department", required=True, index=True)
-    metric_type = fields.Selection([
-        ("gender_representation", "Gender Representation"),
-        ("age_distribution", "Age Distribution"),
-        ("disability_inclusion", "Disability Inclusion"),
-        ("nationality_mix", "Nationality Mix"),
-        ("other", "Other"),
-    ], required=True, default="gender_representation")
+    metric_type = fields.Selection(
+        [
+            ("gender_representation", "Gender Representation"),
+            ("age_distribution", "Age Distribution"),
+            ("disability_inclusion", "Disability Inclusion"),
+            ("nationality_mix", "Nationality Mix"),
+            ("other", "Other"),
+        ],
+        required=True, default="gender_representation",
+    )
     value = fields.Float(required=True)
     period = fields.Date(required=True, default=fields.Date.context_today, index=True)
     notes = fields.Text()
@@ -97,15 +133,24 @@ class ESGTrainingCompletion(models.Model):
 
     name = fields.Char(required=True, string="Training")
     employee_id = fields.Many2one("hr.employee", required=True, index=True)
-    department_id = fields.Many2one(related="employee_id.esg_department_id", store=True, readonly=True, index=True)
+    department_id = fields.Many2one(
+        related="employee_id.esg_department_id", store=True, readonly=True, index=True
+    )
     completion_date = fields.Date(required=True, default=fields.Date.context_today)
-    status = fields.Selection([
-        ("in_progress", "In Progress"),
-        ("completed", "Completed"),
-        ("expired", "Expired"),
-    ], required=True, default="completed")
+    status = fields.Selection(
+        [
+            ("in_progress", "In Progress"),
+            ("completed", "Completed"),
+            ("expired", "Expired"),
+        ],
+        required=True, default="completed",
+    )
     certificate = fields.Binary(attachment=True)
     certificate_filename = fields.Char()
     _sql_constraints = [
-        ("esg_training_employee_course_unique", "unique(name, employee_id)", "This employee already has a completion record for this training."),
+        (
+            "esg_training_employee_course_unique",
+            "unique(name, employee_id)",
+            "This employee already has a completion record for this training.",
+        ),
     ]

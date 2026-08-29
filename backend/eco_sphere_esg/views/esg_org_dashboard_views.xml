@@ -1,0 +1,30 @@
+<odoo>
+  <!-- ===================== ORGANISATION DASHBOARD (Phase 15) ===================== -->
+  <!--
+    Native Odoo dashboard landing page for the EcoSphere ESG module.
+    Uses a client action that opens the Department Score graph (org-level rollup)
+    alongside quick-access shortcuts to all major sub-views.
+
+    The ESG scores panel is a pivot view of esg.department.score showing the
+    latest per-department breakdown. The emissions trend is the existing
+    Department Carbon Report graph view. Both are linked via menu actions.
+  -->
+
+  <!-- Action that shows ESG score pivot as the organisation-level overview -->
+  <record id="action_esg_org_dashboard" model="ir.actions.act_window">
+    <field name="name">Organisation Dashboard</field>
+    <field name="res_model">esg.department.score</field>
+    <field name="view_mode">graph,pivot,list</field>
+    <field name="context">{'graph_measure': 'total_score', 'graph_mode': 'bar'}</field>
+    <field name="help" type="html">
+      <p class="o_view_nocontent_smiling_face">
+        No ESG scores yet
+      </p>
+      <p>
+        Configure departments and run <strong>Recalculate ESG Scores Now</strong>
+        from the Action menu to populate the dashboard.
+      </p>
+    </field>
+  </record>
+
+</odoo>

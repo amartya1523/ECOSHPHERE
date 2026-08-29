@@ -12,10 +12,22 @@ class ESGChallenge(models.Model):
     category_id = fields.Many2one("esg.category", domain=[("category_type", "=", "challenge")])
     description = fields.Html(required=True)
     xp_value = fields.Integer(required=True, default=0)
-    difficulty = fields.Selection([("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")], required=True, default="medium")
+    difficulty = fields.Selection(
+        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        required=True, default="medium",
+    )
     evidence_required = fields.Boolean(default=False)
     deadline = fields.Date(required=True)
-    state = fields.Selection([("draft", "Draft"), ("active", "Active"), ("under_review", "Under Review"), ("completed", "Completed"), ("archived", "Archived")], required=True, default="draft", tracking=True)
+    state = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("active", "Active"),
+            ("under_review", "Under Review"),
+            ("completed", "Completed"),
+            ("archived", "Archived"),
+        ],
+        required=True, default="draft", tracking=True,
+    )
     participation_ids = fields.One2many("esg.challenge.participation", "challenge_id")
     _sql_constraints = [("esg_challenge_xp_nonnegative", "CHECK(xp_value >= 0)", "XP cannot be negative.")]
 
@@ -24,10 +36,18 @@ class ESGChallenge(models.Model):
             raise ValidationError(_("This challenge cannot move to the requested state."))
         self.with_context(esg_state_action=True).write({"state": target})
 
-    def action_activate(self): self._transition("active", {"draft"})
-    def action_review(self): self._transition("under_review", {"active"})
-    def action_complete(self): self._transition("completed", {"under_review"})
-    def action_archive(self): self.with_context(esg_state_action=True).write({"state": "archived"})
+    def action_activate(self):
+        self._transition("active", {"draft"})
+
+    def action_review(self):
+        self._transition("under_review", {"active"})
+
+    def action_complete(self):
+        self._transition("completed", {"under_review"})
+
+    def action_archive(self):
+        # Archived is reachable from any prior state
+        self.with_context(esg_state_action=True).write({"state": "archived"})
 
     def write(self, values):
         if "state" in values and not self.env.context.get("esg_state_action"):
@@ -42,13 +62,29 @@ class ESGChallengeParticipation(models.Model):
     _order = "create_date desc"
 
     challenge_id = fields.Many2one("esg.challenge", required=True, ondelete="cascade")
-    employee_id = fields.Many2one("hr.employee", required=True, default=lambda self: self.env.user.employee_id)
+    employee_id = fields.Many2one(
+        "hr.employee", required=True, default=lambda self: self.env.user.employee_id
+    )
     progress = fields.Float(default=0.0, help="Completion percentage.")
     proof = fields.Binary(attachment=True)
     proof_filename = fields.Char()
-    state = fields.Selection([("joined", "Joined"), ("under_review", "Under Review"), ("approved", "Approved"), ("rejected", "Rejected")], default="joined", tracking=True)
+    state = fields.Selection(
+        [
+            ("joined", "Joined"),
+            ("under_review", "Under Review"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        default="joined", tracking=True,
+    )
     xp_awarded = fields.Integer(default=0, readonly=True)
-    _sql_constraints = [("esg_challenge_participation_unique", "unique(challenge_id, employee_id)", "An employee can join a challenge only once.")]
+    _sql_constraints = [
+        (
+            "esg_challenge_participation_unique",
+            "unique(challenge_id, employee_id)",
+            "An employee can join a challenge only once.",
+        )
+    ]
 
     @api.constrains("progress")
     def _check_progress(self):
@@ -63,20 +99,46 @@ class ESGChallengeParticipation(models.Model):
             record.state = "under_review"
 
     def action_approve(self):
+        params = self.env["ir.config_parameter"].sudo()
+        notify = params.get_param("eco_sphere_esg.challenge_notifications", "True") == "True"
         for record in self:
             record.write({"state": "approved", "xp_awarded": record.challenge_id.xp_value})
+            if notify:
+                record.message_post(
+                    body=_(
+                        "Challenge participation approved. %s XP awarded to %s."
+                    ) % (record.xp_awarded, record.employee_id.name)
+                )
             record._auto_award_badges()
 
-    def _auto_award_badges(self):
-        if self.env["ir.config_parameter"].sudo().get_param("eco_sphere_esg.auto_award_badges", "True") != "True":
-            return
-        Badge = self.env["esg.badge"]
+    def action_reject(self):
+        params = self.env["ir.config_parameter"].sudo()
+        notify = params.get_param("eco_sphere_esg.challenge_notifications", "True") == "True"
         for record in self:
-            total_xp = sum(self.search([("employee_id", "=", record.employee_id.id), ("state", "=", "approved")]).mapped("xp_awarded"))
-            completed = self.search_count([("employee_id", "=", record.employee_id.id), ("state", "=", "approved")])
-            for badge in Badge.search([]):
+            record.write({"state": "rejected"})
+            if notify:
+                record.message_post(
+                    body=_("Challenge participation rejected for %s.") % record.employee_id.name
+                )
+
+    def _auto_award_badges(self):
+        """Check if any badges should be unlocked after this approval."""
+        if (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("eco_sphere_esg.auto_award_badges", "True")
+            != "True"
+        ):
+            return
+        for record in self:
+            approved = self.search(
+                [("employee_id", "=", record.employee_id.id), ("state", "=", "approved")]
+            )
+            total_xp = sum(approved.mapped("xp_awarded"))
+            completed = len(approved)
+            for badge in self.env["esg.badge"].search([]):
                 if total_xp >= badge.minimum_xp and completed >= badge.minimum_challenges:
-                    Badge._grant(badge, record.employee_id)
+                    badge._grant(record.employee_id)
 
 
 class ESGBadge(models.Model):
@@ -91,19 +153,37 @@ class ESGBadge(models.Model):
     award_ids = fields.One2many("esg.badge.award", "badge_id")
 
     def _grant(self, employee):
+        """Grant this badge to an employee if they do not already have it."""
         Award = self.env["esg.badge.award"]
+        notify = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("eco_sphere_esg.badge_notifications", "True")
+            == "True"
+        )
         for badge in self:
             if not Award.search_count([("badge_id", "=", badge.id), ("employee_id", "=", employee.id)]):
                 Award.create({"badge_id": badge.id, "employee_id": employee.id})
-                employee.message_post(body=_("You unlocked the EcoSphere badge: %s") % badge.name)
+                if notify:
+                    employee.message_post(
+                        body=_("You unlocked the EcoSphere badge: %s") % badge.name
+                    )
 
     @api.model
     def _cron_auto_award_badges(self):
-        if self.env["ir.config_parameter"].sudo().get_param("eco_sphere_esg.auto_award_badges", "True") != "True":
+        """Nightly cron: check all employees against all badge unlock rules."""
+        if (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("eco_sphere_esg.auto_award_badges", "True")
+            != "True"
+        ):
             return True
         Participation = self.env["esg.challenge.participation"]
         for employee in self.env["hr.employee"].search([]):
-            approved = Participation.search([("employee_id", "=", employee.id), ("state", "=", "approved")])
+            approved = Participation.search(
+                [("employee_id", "=", employee.id), ("state", "=", "approved")]
+            )
             xp = sum(approved.mapped("xp_awarded"))
             for badge in self.search([]):
                 if xp >= badge.minimum_xp and len(approved) >= badge.minimum_challenges:
@@ -115,18 +195,29 @@ class ESGBadgeAward(models.Model):
     _name = "esg.badge.award"
     _description = "Badge Award"
     _order = "awarded_on desc"
+
     badge_id = fields.Many2one("esg.badge", required=True, ondelete="cascade")
     employee_id = fields.Many2one("hr.employee", required=True, ondelete="cascade")
     awarded_on = fields.Datetime(default=fields.Datetime.now, readonly=True)
-    _sql_constraints = [("esg_badge_award_unique", "unique(badge_id, employee_id)", "Badge already awarded to this employee.")]
+    _sql_constraints = [
+        (
+            "esg_badge_award_unique",
+            "unique(badge_id, employee_id)",
+            "Badge already awarded to this employee.",
+        )
+    ]
 
 
 class ESGReward(models.Model):
     _name = "esg.reward"
     _description = "ESG Reward"
+
     name = fields.Char(required=True)
     description = fields.Text()
     points_required = fields.Integer(required=True)
     stock = fields.Integer(required=True, default=0)
     active = fields.Boolean(default=True)
-    _sql_constraints = [("esg_reward_points_nonnegative", "CHECK(points_required >= 0)", "Required points cannot be negative."), ("esg_reward_stock_nonnegative", "CHECK(stock >= 0)", "Stock cannot be negative.")]
+    _sql_constraints = [
+        ("esg_reward_points_nonnegative", "CHECK(points_required >= 0)", "Required points cannot be negative."),
+        ("esg_reward_stock_nonnegative", "CHECK(stock >= 0)", "Stock cannot be negative."),
+    ]

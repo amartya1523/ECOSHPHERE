@@ -1,37 +1,62 @@
 <odoo>
- <menuitem id="menu_esg_root" name="EcoSphere ESG" sequence="10" groups="eco_sphere_esg.group_esg_user"/>
- <menuitem id="menu_esg_environmental" name="Environmental" parent="menu_esg_root" sequence="10"/>
- <menuitem id="menu_esg_environmental_dashboard" name="Dashboard" parent="menu_esg_environmental" action="action_esg_environmental_dashboard" sequence="1"/>
- <menuitem id="menu_esg_factor" name="Emission Factors" parent="menu_esg_environmental" action="action_esg_factor"/>
- <menuitem id="menu_esg_product_profile" name="Product ESG Profiles" parent="menu_esg_environmental" action="action_esg_product_profile"/>
- <menuitem id="menu_esg_carbon" name="Carbon Transactions" parent="menu_esg_environmental" action="action_esg_carbon"/>
- <menuitem id="menu_esg_goal" name="Environmental Goals" parent="menu_esg_environmental" action="action_esg_goal"/>
- <menuitem id="menu_esg_department_carbon_tracking" name="Department Carbon Tracking" parent="menu_esg_environmental" action="action_esg_department_carbon_tracking"/>
- <menuitem id="menu_esg_social" name="Social" parent="menu_esg_root" sequence="20"/>
- <menuitem id="menu_esg_csr" name="CSR Activities" parent="menu_esg_social" action="action_esg_csr_activity"/>
- <menuitem id="menu_esg_csr_part" name="Employee Participation" parent="menu_esg_social" action="action_esg_csr_participation"/>
- <menuitem id="menu_esg_diversity_metric" name="Diversity Metrics" parent="menu_esg_social" action="action_esg_diversity_metric"/>
- <menuitem id="menu_esg_training_completion" name="Training Completion" parent="menu_esg_social" action="action_esg_training_completion"/>
- <menuitem id="menu_esg_governance" name="Governance" parent="menu_esg_root" sequence="30"/>
- <menuitem id="menu_esg_policy" name="Policies" parent="menu_esg_governance" action="action_esg_policy"/>
- <menuitem id="menu_esg_policy_ack" name="Policy Acknowledgements" parent="menu_esg_governance" action="action_esg_policy_ack"/>
- <menuitem id="menu_esg_audit" name="Audits" parent="menu_esg_governance" action="action_esg_audit"/>
- <menuitem id="menu_esg_issue" name="Compliance Issues" parent="menu_esg_governance" action="action_esg_issue"/>
- <menuitem id="menu_esg_game" name="Gamification" parent="menu_esg_root" sequence="40"/>
- <menuitem id="menu_esg_challenge" name="Challenges" parent="menu_esg_game" action="action_esg_challenge"/>
- <menuitem id="menu_esg_challenge_part" name="Challenge Participation" parent="menu_esg_game" action="action_esg_challenge_part"/>
- <menuitem id="menu_esg_badge" name="Badges" parent="menu_esg_game" action="action_esg_badge"/>
- <menuitem id="menu_esg_reward" name="Rewards" parent="menu_esg_game" action="action_esg_reward"/>
- <menuitem id="menu_esg_redemption" name="Reward Redemptions" parent="menu_esg_game" action="action_esg_redemption"/>
- <menuitem id="menu_esg_leaderboard" name="Leaderboard" parent="menu_esg_game" action="action_esg_score"/>
- <menuitem id="menu_esg_reports" name="Reports" parent="menu_esg_root" sequence="50"/>
- <menuitem id="menu_esg_report_environmental" name="Environmental Report" parent="menu_esg_reports" action="action_esg_report_environmental"/>
- <menuitem id="menu_esg_report_social" name="Social Report" parent="menu_esg_reports" action="action_esg_report_social"/>
- <menuitem id="menu_esg_report_governance" name="Governance Report" parent="menu_esg_reports" action="action_esg_report_governance"/>
- <menuitem id="menu_esg_report_summary" name="ESG Summary Report" parent="menu_esg_reports" action="action_esg_report_summary"/>
- <menuitem id="menu_esg_report_builder" name="Custom Builder" parent="menu_esg_reports" action="action_esg_report_builder"/>
- <menuitem id="menu_esg_settings" name="Settings" parent="menu_esg_root" sequence="90" groups="eco_sphere_esg.group_esg_admin,eco_sphere_esg.group_esg_manager"/>
- <menuitem id="menu_esg_departments" name="Departments" parent="menu_esg_settings" action="action_esg_department"/>
- <menuitem id="menu_esg_categories" name="Categories" parent="menu_esg_settings" action="action_esg_category"/>
- <menuitem id="menu_esg_config" name="Configuration" parent="menu_esg_settings" action="action_esg_settings"/>
+  <!-- ============ Root app ============ -->
+  <menuitem id="menu_esg_root" name="EcoSphere ESG" sequence="10" groups="eco_sphere_esg.group_esg_user"/>
+
+  <!-- ============ Organisation Dashboard (Phase 15) ============ -->
+  <menuitem id="menu_esg_org_dashboard"
+            name="Dashboard"
+            parent="menu_esg_root"
+            action="action_esg_org_dashboard"
+            sequence="1"/>
+
+  <!-- ============ Environmental ============ -->
+  <menuitem id="menu_esg_environmental" name="Environmental" parent="menu_esg_root" sequence="10"/>
+  <menuitem id="menu_esg_environmental_dashboard" name="Dashboard"            parent="menu_esg_environmental" action="action_esg_environmental_dashboard" sequence="1"/>
+  <menuitem id="menu_esg_factor"                  name="Emission Factors"     parent="menu_esg_environmental" action="action_esg_factor"/>
+  <menuitem id="menu_esg_product_profile"         name="Product ESG Profiles" parent="menu_esg_environmental" action="action_esg_product_profile"/>
+  <menuitem id="menu_esg_carbon"                  name="Carbon Transactions"  parent="menu_esg_environmental" action="action_esg_carbon"/>
+  <menuitem id="menu_esg_goal"                    name="Environmental Goals"  parent="menu_esg_environmental" action="action_esg_goal"/>
+  <menuitem id="menu_esg_department_carbon_tracking" name="Department Carbon Tracking" parent="menu_esg_environmental" action="action_esg_department_carbon_tracking"/>
+
+  <!-- ============ Social ============ -->
+  <menuitem id="menu_esg_social" name="Social" parent="menu_esg_root" sequence="20"/>
+  <menuitem id="menu_esg_csr"               name="CSR Activities"      parent="menu_esg_social" action="action_esg_csr_activity"/>
+  <menuitem id="menu_esg_csr_part"          name="Employee Participation" parent="menu_esg_social" action="action_esg_csr_participation"/>
+  <menuitem id="menu_esg_diversity_metric"  name="Diversity Metrics"   parent="menu_esg_social" action="action_esg_diversity_metric"/>
+  <menuitem id="menu_esg_training_completion" name="Training Completion" parent="menu_esg_social" action="action_esg_training_completion"/>
+
+  <!-- ============ Governance ============ -->
+  <menuitem id="menu_esg_governance" name="Governance" parent="menu_esg_root" sequence="30"/>
+  <menuitem id="menu_esg_policy"     name="Policies"                parent="menu_esg_governance" action="action_esg_policy"/>
+  <menuitem id="menu_esg_policy_ack" name="Policy Acknowledgements" parent="menu_esg_governance" action="action_esg_policy_ack"/>
+  <menuitem id="menu_esg_audit"      name="Audits"                  parent="menu_esg_governance" action="action_esg_audit"/>
+  <menuitem id="menu_esg_issue"      name="Compliance Issues"       parent="menu_esg_governance" action="action_esg_issue"/>
+
+  <!-- ============ Gamification ============ -->
+  <menuitem id="menu_esg_game"            name="Gamification"          parent="menu_esg_root" sequence="40"/>
+  <menuitem id="menu_esg_challenge"       name="Challenges"            parent="menu_esg_game" action="action_esg_challenge"/>
+  <menuitem id="menu_esg_challenge_part"  name="Challenge Participation" parent="menu_esg_game" action="action_esg_challenge_part"/>
+  <menuitem id="menu_esg_badge"           name="Badges"                parent="menu_esg_game" action="action_esg_badge"/>
+  <menuitem id="menu_esg_reward"          name="Rewards"               parent="menu_esg_game" action="action_esg_reward"/>
+  <menuitem id="menu_esg_redemption"      name="Reward Redemptions"    parent="menu_esg_game" action="action_esg_redemption"/>
+  <!-- Phase 13: Employee XP Leaderboard -->
+  <menuitem id="menu_esg_employee_leaderboard" name="Employee Leaderboard" parent="menu_esg_game" action="action_esg_employee_leaderboard" sequence="90"/>
+  <!-- Department score ranking -->
+  <menuitem id="menu_esg_leaderboard"     name="Department Scores"     parent="menu_esg_game" action="action_esg_score" sequence="91"/>
+
+  <!-- ============ Reports ============ -->
+  <menuitem id="menu_esg_reports"               name="Reports"             parent="menu_esg_root" sequence="50"/>
+  <menuitem id="menu_esg_report_environmental"  name="Environmental Report" parent="menu_esg_reports" action="action_esg_report_environmental"/>
+  <menuitem id="menu_esg_report_social"         name="Social Report"       parent="menu_esg_reports" action="action_esg_report_social"/>
+  <menuitem id="menu_esg_report_governance"     name="Governance Report"   parent="menu_esg_reports" action="action_esg_report_governance"/>
+  <menuitem id="menu_esg_report_summary"        name="ESG Summary Report"  parent="menu_esg_reports" action="action_esg_report_summary"/>
+  <menuitem id="menu_esg_report_builder"        name="Custom Builder"      parent="menu_esg_reports" action="action_esg_report_builder"/>
+
+  <!-- ============ Settings ============ -->
+  <menuitem id="menu_esg_settings"     name="Settings"       parent="menu_esg_root" sequence="90" groups="eco_sphere_esg.group_esg_admin,eco_sphere_esg.group_esg_manager"/>
+  <menuitem id="menu_esg_departments"  name="Departments"    parent="menu_esg_settings" action="action_esg_department"/>
+  <menuitem id="menu_esg_categories"   name="Categories"     parent="menu_esg_settings" action="action_esg_category"/>
+  <menuitem id="menu_esg_config"       name="Configuration"  parent="menu_esg_settings" action="action_esg_settings"/>
+  <!-- Phase 16: dedicated Notification Settings menu item -->
+  <menuitem id="menu_esg_notif_settings" name="Notification Settings" parent="menu_esg_settings" action="action_esg_settings" sequence="20"/>
 </odoo>

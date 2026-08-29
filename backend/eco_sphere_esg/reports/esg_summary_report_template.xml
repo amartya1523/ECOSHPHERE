@@ -1,1 +1,48 @@
-<odoo><template id="esg_summary_report_document"><t t-call="web.html_container"><t t-call="web.external_layout"><div class="page"><h2>ESG Summary Report</h2><table class="table table-sm"><thead><tr><th>Department</th><th>Date</th><th>Environmental</th><th>Social</th><th>Governance</th><th>Total</th></tr></thead><tbody><tr t-foreach="docs" t-as="o"><td><span t-field="o.department_id"/></td><td><span t-field="o.score_date"/></td><td><span t-field="o.environmental_score"/></td><td><span t-field="o.social_score"/></td><td><span t-field="o.governance_score"/></td><td><span t-field="o.total_score"/></td></tr></tbody></table></div></t></t></template></odoo>
+<odoo>
+  <template id="esg_summary_report_document">
+    <t t-call="web.html_container">
+      <t t-call="web.external_layout">
+        <div class="page">
+          <h2>ESG Summary Report</h2>
+          <p>Generated: <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')"/></p>
+          <h3>Department ESG Scores</h3>
+          <table class="table table-bordered">
+            <thead class="thead-dark">
+              <tr>
+                <th>Department</th>
+                <th>Score Date</th>
+                <th>Environmental</th>
+                <th>Social</th>
+                <th>Governance</th>
+                <th>Total Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              <t t-foreach="docs" t-as="score">
+                <tr>
+                  <td><t t-esc="score.department_id.name if score.department_id else ''"/></td>
+                  <td><t t-esc="score.score_date"/></td>
+                  <td><t t-esc="'%.1f' % score.environmental_score"/>%</td>
+                  <td><t t-esc="'%.1f' % score.social_score"/>%</td>
+                  <td><t t-esc="'%.1f' % score.governance_score"/>%</td>
+                  <td class="font-weight-bold"><t t-esc="'%.1f' % score.total_score"/>%</td>
+                </tr>
+              </t>
+            </tbody>
+            <tfoot>
+              <t t-if="docs">
+                <tr class="table-info font-weight-bold">
+                  <td colspan="5">Organisation Overall ESG Score (weighted average)</td>
+                  <td><t t-esc="'%.1f' % (sum(docs.mapped('total_score')) / len(docs))"/>%</td>
+                </tr>
+              </t>
+            </tfoot>
+          </table>
+          <p class="text-muted mt-4">
+            Score weights: Environmental / Social / Governance are configurable in Settings → Configuration.
+          </p>
+        </div>
+      </t>
+    </t>
+  </template>
+</odoo>

@@ -42,3 +42,5 @@ access_esg_redemption_manager,esg.reward.redemption manager,model_esg_reward_red
 access_esg_score_user,esg.department.score user,model_esg_department_score,group_esg_user,1,0,0,0
 access_esg_score_manager,esg.department.score manager,model_esg_department_score,group_esg_admin,1,1,1,1
 access_esg_report_builder_user,esg.report.builder user,model_esg_report_builder,group_esg_user,1,1,1,1
+access_esg_badge_award_manager,esg.badge.award manager,model_esg_badge_award,group_esg_admin,1,1,1,1
+access_esg_employee_leaderboard_user,esg.employee.leaderboard user,model_esg_employee_leaderboard,group_esg_user,1,0,0,0

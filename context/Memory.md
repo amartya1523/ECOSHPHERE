@@ -24,6 +24,11 @@
 
 <!-- New entries go below this line -->
 
+## 2026-08-29 — Frontend-first EcoSphere workspace
+- Status: Removed the React application's raw Odoo navigation path. The frontend now uses a strict Odoo API allow-list for EcoSphere resources and renders in-place list, search, create, edit and delete workflows with responsive forms, confirmation, feedback and access-right-aware controls.
+- Verification: `npm run build` passed. `eco_sphere_esg` upgraded successfully on `ecosphere_db`; the full native suite reports 32 tests with 0 failures and 0 errors.
+- Notes: Odoo remains the authentication, access-control and PostgreSQL persistence layer. The React application stays on port 5173. In this local single-workspace setup, a self-registered account is provisioned as an ESG Manager so it can operate all screens; production should replace public registration with invitations/SSO. The four report templates/actions are tested, but PDF rendering still requires local `wkhtmltopdf`; it is not claimed as visually PDF-verified here.
+
 ## 2026-08-29 — Phases 6–10 completed
 - Status: Added a native environmental dashboard and departmental monthly carbon rollup, CSR evidence approval controls, diversity metrics, standalone training completion tracking, policy attachments/acknowledgements/reminders, and compliance overdue tracking via scheduled cron.
 - Verification: Upgraded `eco_sphere_esg` on the local Odoo 17 `ecosphere_db`. The Odoo suite reports 10 test methods, 0 failures and 0 errors (14 total EcoSphere tests).

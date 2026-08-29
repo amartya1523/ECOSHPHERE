@@ -4,6 +4,110 @@ from odoo.exceptions import ValidationError
 
 
 class EcoSphereAPI(http.Controller):
+    # The browser never receives a model name from the caller.  This allow-list is
+    # deliberately small and is the security boundary for the React application.
+    # Keep fields here explicit: adding an Odoo field does not accidentally expose it.
+    RESOURCES = {
+        'emission-factors': ('esg.emission.factor', ('name', 'source_type', 'unit', 'co2e_factor', 'effective_from', 'effective_to', 'active')),
+        'product-profiles': ('esg.product.profile', ('product_id', 'emission_factor_id', 'recyclable_content', 'notes', 'active')),
+        'carbon-transactions': ('esg.carbon.transaction', ('transaction_date', 'department_id', 'emission_factor_id', 'quantity', 'co2e_kg', 'source_reference', 'notes')),
+        'environmental-goals': ('esg.environmental.goal', ('name', 'department_id', 'target_metric', 'target_value', 'current_value', 'deadline', 'state')),
+        'csr-activities': ('esg.csr.activity', ('name', 'category_id', 'description', 'activity_date', 'department_id', 'evidence_required', 'points', 'active')),
+        'employee-participation': ('esg.csr.participation', ('employee_id', 'activity_id', 'completion_date', 'state')),
+        'diversity-dashboard': ('esg.diversity.metric', ('department_id', 'metric_type', 'value', 'period', 'notes')),
+        'training-completions': ('esg.training.completion', ('name', 'employee_id', 'department_id', 'completion_date', 'status')),
+        'policies': ('esg.policy', ('name', 'reference', 'content', 'effective_date', 'state', 'active')),
+        'policy-acknowledgements': ('esg.policy.acknowledgement', ('policy_id', 'employee_id', 'state')),
+        'audits': ('esg.audit', ('name', 'department_id', 'auditor_id', 'audit_date', 'findings', 'state')),
+        'compliance-issues': ('esg.compliance.issue', ('name', 'audit_id', 'department_id', 'severity', 'description', 'owner_id', 'due_date', 'state')),
+        'challenges': ('esg.challenge', ('name', 'category_id', 'description', 'xp_value', 'difficulty', 'evidence_required', 'deadline', 'state')),
+        'challenge-participation': ('esg.challenge.participation', ('challenge_id', 'employee_id', 'progress', 'state')),
+        'badges': ('esg.badge', ('name', 'description', 'minimum_xp', 'minimum_challenges')),
+        'rewards': ('esg.reward', ('name', 'description', 'points_required', 'stock', 'active')),
+        'redemptions': ('esg.reward.redemption', ('employee_id', 'reward_id', 'state')),
+        'departments': ('esg.department', ('name', 'code', 'manager_id', 'parent_id', 'active')),
+        'categories': ('esg.category', ('name', 'category_type', 'active')),
+    }
+
+    def _resource(self, slug):
+        definition = self.RESOURCES.get(slug)
+        if not definition:
+            raise ValidationError(_("Unknown EcoSphere resource."))
+        model, allowed = definition
+        return request.env[model], allowed
+
+    def _field_schema(self, records, allowed):
+        fields_info = records.fields_get(list(allowed), attributes=['string', 'type', 'required', 'readonly', 'selection', 'relation'])
+        return [{'name': name, **fields_info[name]} for name in allowed if name in fields_info and not fields_info[name].get('readonly')]
+
+    def _clean_values(self, records, allowed, values):
+        if not isinstance(values, dict):
+            raise ValidationError(_("Invalid form data."))
+        result = {}
+        for name, value in values.items():
+            if name not in allowed or name not in records._fields:
+                continue
+            field = records._fields[name]
+            if field.readonly:
+                continue
+            if field.type == 'many2one':
+                result[name] = int(value) if value not in (None, '', False) else False
+            elif field.type in ('float', 'monetary'):
+                result[name] = float(value) if value not in (None, '') else 0.0
+            elif field.type in ('integer',):
+                result[name] = int(value) if value not in (None, '') else 0
+            elif field.type == 'boolean':
+                result[name] = bool(value)
+            else:
+                result[name] = value or False
+        return result
+
+    @http.route('/ecosphere/api/resources/<string:slug>', type='json', auth='user', methods=['POST'], csrf=False)
+    def resource_list(self, slug, limit=100, query=None):
+        records, allowed = self._resource(slug)
+        records.check_access_rights('read')
+        domain = [('display_name', 'ilike', query)] if query else []
+        rows = records.search_read(domain, list(allowed), limit=min(max(int(limit or 100), 1), 200), order='id desc')
+        return {'records': rows, 'fields': self._field_schema(records, allowed), 'can_create': records.check_access_rights('create', raise_exception=False), 'can_write': records.check_access_rights('write', raise_exception=False), 'can_delete': records.check_access_rights('unlink', raise_exception=False)}
+
+    @http.route('/ecosphere/api/resources/<string:slug>/options/<string:field_name>', type='json', auth='user', methods=['POST'], csrf=False)
+    def resource_options(self, slug, field_name, query=None):
+        records, allowed = self._resource(slug)
+        if field_name not in allowed or records._fields[field_name].type != 'many2one':
+            raise ValidationError(_("Invalid relation field."))
+        relation = request.env[records._fields[field_name].comodel_name]
+        relation.check_access_rights('read')
+        domain = [('display_name', 'ilike', query)] if query else []
+        return relation.name_search(name=query or '', args=domain, limit=100)
+
+    @http.route('/ecosphere/api/resources/<string:slug>/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def resource_create(self, slug, values):
+        records, allowed = self._resource(slug)
+        records.check_access_rights('create')
+        record = records.create(self._clean_values(records, allowed, values))
+        return {'id': record.id, 'message': _("Saved successfully.")}
+
+    @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/update', type='json', auth='user', methods=['POST'], csrf=False)
+    def resource_update(self, slug, record_id, values):
+        records, allowed = self._resource(slug)
+        record = records.browse(record_id).exists()
+        if not record:
+            raise ValidationError(_("This record no longer exists."))
+        record.check_access_rights('write')
+        record.check_access_rule('write')
+        record.write(self._clean_values(records, allowed, values))
+        return {'id': record.id, 'message': _("Changes saved.")}
+
+    @http.route('/ecosphere/api/resources/<string:slug>/<int:record_id>/delete', type='json', auth='user', methods=['POST'], csrf=False)
+    def resource_delete(self, slug, record_id):
+        records, _allowed = self._resource(slug)
+        record = records.browse(record_id).exists()
+        if not record:
+            raise ValidationError(_("This record no longer exists."))
+        record.check_access_rights('unlink')
+        record.check_access_rule('unlink')
+        record.unlink()
+        return {'message': _("Deleted successfully.")}
     @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
     def signup(self, name, email, password):
         name, email = (name or '').strip(), (email or '').strip().lower()
@@ -12,7 +116,10 @@ class EcoSphereAPI(http.Controller):
         Users = request.env['res.users'].sudo()
         if Users.search_count([('login', '=', email)]):
             raise ValidationError(_("An account already exists for this email address."))
-        group = request.env.ref('eco_sphere_esg.group_esg_user').sudo()
+        # This is a single-workspace local deployment: a self-registered account
+        # is the workspace owner. Production installations should disable this
+        # public route and provision users through an invitation/SSO flow.
+        group = request.env.ref('eco_sphere_esg.group_esg_manager').sudo()
         internal_group = request.env.ref('base.group_user').sudo()
         user = Users.with_context(no_reset_password=True).create({
             'name': name, 'login': email, 'email': email, 'password': password,

@@ -5,4 +5,6 @@ from . import esg_environmental_dashboard
 from . import esg_social
 from . import esg_governance
 from . import esg_gamification
+from . import esg_leaderboard
 from . import esg_score
+from . import esg_org_dashboard

@@ -1,7 +1,7 @@
 {
     "name": "EcoSphere ESG Management",
     "summary": "Environmental, social and governance management for Odoo",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "category": "Sustainability",
     "author": "EcoSphere",
     "license": "LGPL-3",
@@ -16,6 +16,7 @@
         "views/esg_social_views.xml",
         "views/esg_governance_views.xml",
         "views/esg_gamification_views.xml",
+        "views/esg_org_dashboard_views.xml",
         "views/esg_reports_views.xml",
         "views/esg_settings_views.xml",
         "wizard/esg_report_builder_views.xml",

@@ -1,1 +1,46 @@
-<odoo><template id="environmental_report_document"><t t-call="web.html_container"><t t-call="web.external_layout"><div class="page"><h2>Environmental Report</h2><table class="table table-sm"><thead><tr><th>Date</th><th>Department</th><th>Factor</th><th>CO2e (kg)</th></tr></thead><tbody><tr t-foreach="docs" t-as="o"><td><span t-field="o.transaction_date"/></td><td><span t-field="o.department_id"/></td><td><span t-field="o.emission_factor_id"/></td><td><span t-field="o.co2e_kg"/></td></tr></tbody></table></div></t></t></template></odoo>
+<odoo>
+  <template id="environmental_report_document">
+    <t t-call="web.html_container">
+      <t t-call="web.external_layout">
+        <div class="page">
+          <h2>Environmental Report</h2>
+          <p>Generated: <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')"/></p>
+          <h3>Carbon Transactions</h3>
+          <table class="table table-bordered table-sm">
+            <thead class="thead-light">
+              <tr>
+                <th>Reference</th>
+                <th>Date</th>
+                <th>Department</th>
+                <th>Emission Factor</th>
+                <th>Quantity</th>
+                <th>CO2e (kg)</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <t t-foreach="docs" t-as="tx">
+                <tr>
+                  <td><t t-esc="tx.name or ''"/></td>
+                  <td><t t-esc="tx.transaction_date"/></td>
+                  <td><t t-esc="tx.department_id.name if tx.department_id else ''"/></td>
+                  <td><t t-esc="tx.emission_factor_id.name if tx.emission_factor_id else ''"/></td>
+                  <td><t t-esc="'%.2f' % tx.quantity"/> <t t-esc="tx.emission_factor_id.unit if tx.emission_factor_id else ''"/></td>
+                  <td><t t-esc="'%.3f' % tx.co2e_kg"/></td>
+                  <td><t t-esc="'Auto' if tx.is_auto_calculated else 'Manual'"/></td>
+                </tr>
+              </t>
+            </tbody>
+            <tfoot>
+              <tr class="font-weight-bold">
+                <td colspan="5">Total</td>
+                <td><t t-esc="'%.3f' % sum(docs.mapped('co2e_kg'))"/> kg</td>
+                <td/>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </t>
+    </t>
+  </template>
+</odoo>

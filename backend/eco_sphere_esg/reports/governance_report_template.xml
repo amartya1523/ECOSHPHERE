@@ -1,1 +1,54 @@
-<odoo><template id="governance_report_document"><t t-call="web.html_container"><t t-call="web.external_layout"><div class="page"><h2>Governance Report</h2><table class="table table-sm"><thead><tr><th>Audit</th><th>Department</th><th>Auditor</th><th>Status</th></tr></thead><tbody><tr t-foreach="docs" t-as="o"><td><span t-field="o.name"/></td><td><span t-field="o.department_id"/></td><td><span t-field="o.auditor_id"/></td><td><span t-field="o.state"/></td></tr></tbody></table></div></t></t></template></odoo>
+<odoo>
+  <template id="governance_report_document">
+    <t t-call="web.html_container">
+      <t t-call="web.external_layout">
+        <div class="page">
+          <h2>Governance Report — Audits &amp; Compliance</h2>
+          <p>Generated: <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')"/></p>
+          <t t-foreach="docs" t-as="audit">
+            <h4>Audit: <t t-esc="audit.name"/>
+              <small class="text-muted ml-2">(<t t-esc="audit.audit_date"/> — <t t-esc="audit.state"/>)</small>
+            </h4>
+            <p>
+              <strong>Department:</strong> <t t-esc="audit.department_id.name if audit.department_id else 'N/A'"/>
+              &amp;nbsp;|&amp;nbsp;
+              <strong>Auditor:</strong> <t t-esc="audit.auditor_id.name if audit.auditor_id else 'N/A'"/>
+            </p>
+            <t t-if="audit.findings">
+              <p><strong>Findings:</strong> <t t-esc="audit.findings"/></p>
+            </t>
+            <t t-if="audit.issue_ids">
+              <table class="table table-bordered table-sm">
+                <thead class="thead-light">
+                  <tr>
+                    <th>Issue</th>
+                    <th>Severity</th>
+                    <th>Owner</th>
+                    <th>Due Date</th>
+                    <th>Status</th>
+                    <th>Overdue?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <t t-foreach="audit.issue_ids" t-as="issue">
+                    <tr t-att-class="'table-danger' if issue.is_overdue else ''">
+                      <td><t t-esc="issue.name"/></td>
+                      <td><t t-esc="issue.severity"/></td>
+                      <td><t t-esc="issue.owner_id.name if issue.owner_id else ''"/></td>
+                      <td><t t-esc="issue.due_date"/></td>
+                      <td><t t-esc="issue.state"/></td>
+                      <td><t t-esc="'Yes' if issue.is_overdue else 'No'"/></td>
+                    </tr>
+                  </t>
+                </tbody>
+              </table>
+            </t>
+            <t t-else="">
+              <p class="text-muted">No compliance issues linked to this audit.</p>
+            </t>
+          </t>
+        </div>
+      </t>
+    </t>
+  </template>
+</odoo>
