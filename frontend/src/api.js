@@ -43,3 +43,6 @@ export const updateResource = (slug, id, values) => rpc(`/ecosphere/api/resource
 export const deleteResource = (slug, id) => rpc(`/ecosphere/api/resources/${slug}/${id}/delete`);
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
+export const getGamification = () => rpc('/ecosphere/api/gamification');
+export const createChallenge = (values) => rpc('/ecosphere/api/gamification/challenges/create', values);
+export const joinChallenge = (id) => rpc(`/ecosphere/api/gamification/challenges/${id}/join`);

@@ -173,6 +173,72 @@ class EcoSphereAPI(http.Controller):
         })
         return {'id': user.id, 'workspace': workspace.name, 'message': _("Enterprise administrator account created.")}
 
+    @http.route('/ecosphere/api/gamification', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification(self):
+        """Role-aware gamification feed for the React workspace."""
+        is_manager = request.env.user.has_group('eco_sphere_esg.group_esg_manager')
+        employee = request.env.user.employee_id
+        Challenge = request.env['esg.challenge']
+        Participation = request.env['esg.challenge.participation']
+        domain = [] if is_manager else [('state', '=', 'active')]
+        challenges = Challenge.search(domain, order='deadline asc, id desc')
+        own_participation = {}
+        if employee:
+            own_participation = {
+                row.challenge_id.id: row for row in Participation.search([('employee_id', '=', employee.id)])
+            }
+        challenge_rows = []
+        for challenge in challenges:
+            joined = own_participation.get(challenge.id)
+            challenge_rows.append({
+                'id': challenge.id,
+                'name': challenge.name,
+                'description': challenge.description or '',
+                'xp_value': challenge.xp_value,
+                'difficulty': challenge.difficulty,
+                'evidence_required': challenge.evidence_required,
+                'deadline': str(challenge.deadline or ''),
+                'state': challenge.state,
+                'participants': Participation.sudo().search_count([('challenge_id', '=', challenge.id)]),
+                'participation': {'id': joined.id, 'state': joined.state, 'progress': joined.progress} if joined else False,
+            })
+        awarded = request.env['esg.badge.award'].sudo()
+        badges = request.env['esg.badge'].search([])
+        badge_rows = [{'id': badge.id, 'name': badge.name, 'description': badge.description or '', 'minimum_xp': badge.minimum_xp, 'unlocked': bool(employee and awarded.search_count([('badge_id', '=', badge.id), ('employee_id', '=', employee.id)]))} for badge in badges]
+        totals = {}
+        for row in Participation.sudo().search([('state', '=', 'approved')]):
+            totals[row.employee_id.id] = totals.get(row.employee_id.id, {'name': row.employee_id.name, 'xp': 0})
+            totals[row.employee_id.id]['xp'] += row.xp_awarded
+        leaderboard = [dict(value, rank=index + 1) for index, value in enumerate(sorted(totals.values(), key=lambda item: item['xp'], reverse=True)[:5])]
+        return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'leaderboard': leaderboard}
+
+    @http.route('/ecosphere/api/gamification/challenges/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification_create_challenge(self, name, description, xp_value, difficulty, deadline, state='active'):
+        self._require_manager()
+        if not (name or '').strip() or not (description or '').strip() or not deadline:
+            raise ValidationError(_("Name, description, and deadline are required."))
+        if state not in {'draft', 'active'} or difficulty not in {'easy', 'medium', 'hard'}:
+            raise ValidationError(_("Invalid challenge status or difficulty."))
+        challenge = request.env['esg.challenge'].create({
+            'name': name.strip(), 'description': description.strip(), 'xp_value': max(int(xp_value or 0), 0),
+            'difficulty': difficulty, 'deadline': deadline, 'state': state,
+        })
+        return {'id': challenge.id, 'message': _("Challenge created.")}
+
+    @http.route('/ecosphere/api/gamification/challenges/<int:challenge_id>/join', type='json', auth='user', methods=['POST'], csrf=False)
+    def gamification_join_challenge(self, challenge_id):
+        employee = request.env.user.employee_id
+        if not employee:
+            raise ValidationError(_("Your employee profile is not ready. Ask an administrator to create your employee access."))
+        challenge = request.env['esg.challenge'].browse(challenge_id).exists()
+        if not challenge or challenge.state != 'active':
+            raise ValidationError(_("Only active challenges can be joined."))
+        Participation = request.env['esg.challenge.participation']
+        if Participation.search_count([('challenge_id', '=', challenge.id), ('employee_id', '=', employee.id)]):
+            raise ValidationError(_("You have already joined this challenge."))
+        participation = Participation.create({'challenge_id': challenge.id, 'employee_id': employee.id})
+        return {'id': participation.id, 'message': _("You joined the challenge. Start making progress!")}
+
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
         scores = request.env['esg.department.score']
