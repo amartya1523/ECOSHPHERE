@@ -27,14 +27,14 @@
     <field name="name">esg.challenge.tree</field>
     <field name="model">esg.challenge</field>
     <field name="arch" type="xml">
-      <list decoration-muted="state == 'archived'" decoration-success="state == 'completed'">
+      <tree decoration-muted="state == 'archived'" decoration-success="state == 'completed'">
         <field name="name"/>
         <field name="category_id"/>
         <field name="difficulty"/>
         <field name="xp_value"/>
         <field name="deadline"/>
         <field name="state" widget="badge"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -103,7 +103,7 @@
     <field name="name">esg.challenge.part.tree</field>
     <field name="model">esg.challenge.participation</field>
     <field name="arch" type="xml">
-      <list>
+      <tree>
         <field name="employee_id"/>
         <field name="challenge_id"/>
         <field name="progress" widget="progressbar"/>
@@ -113,7 +113,7 @@
         <button name="action_submit"  type="object" string="Submit"  invisible="state != 'joined'"/>
         <button name="action_approve" type="object" string="Approve" class="btn-primary" invisible="state != 'under_review'"/>
         <button name="action_reject"  type="object" string="Reject"  class="btn-danger"  invisible="state != 'under_review'"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -128,11 +128,11 @@
     <field name="name">esg.badge.tree</field>
     <field name="model">esg.badge</field>
     <field name="arch" type="xml">
-      <list>
+      <tree>
         <field name="name"/>
         <field name="minimum_xp"/>
         <field name="minimum_challenges"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -149,10 +149,10 @@
             <field name="description"/>
           </group>
           <field name="award_ids">
-            <list create="0" delete="0">
+            <tree create="0" delete="0">
               <field name="employee_id"/>
               <field name="awarded_on"/>
-            </list>
+            </tree>
           </field>
         </sheet>
       </form>
@@ -170,12 +170,12 @@
     <field name="name">esg.reward.tree</field>
     <field name="model">esg.reward</field>
     <field name="arch" type="xml">
-      <list decoration-danger="stock == 0">
+      <tree decoration-danger="stock == 0">
         <field name="name"/>
         <field name="points_required"/>
         <field name="stock"/>
         <field name="active"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -190,14 +190,14 @@
     <field name="name">esg.redemption.tree</field>
     <field name="model">esg.reward.redemption</field>
     <field name="arch" type="xml">
-      <list>
+      <tree>
         <field name="employee_id"/>
         <field name="reward_id"/>
         <field name="points_spent"/>
         <field name="redeemed_on"/>
         <field name="state" widget="badge"/>
         <button name="action_cancel" type="object" string="Cancel" invisible="state != 'requested'"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -212,14 +212,14 @@
     <field name="name">esg.employee.leaderboard.tree</field>
     <field name="model">esg.employee.leaderboard</field>
     <field name="arch" type="xml">
-      <list create="0" edit="0" delete="0">
+      <tree create="0" edit="0" delete="0">
         <field name="rank"/>
         <field name="employee_id"/>
         <field name="department_id"/>
         <field name="total_xp"/>
         <field name="approved_challenges"/>
         <field name="badge_count"/>
-      </list>
+      </tree>
     </field>
   </record>
 
@@ -260,14 +260,14 @@
     <field name="name">esg.department.score.tree</field>
     <field name="model">esg.department.score</field>
     <field name="arch" type="xml">
-      <list>
+      <tree>
         <field name="department_id"/>
         <field name="score_date"/>
         <field name="environmental_score"/>
         <field name="social_score"/>
         <field name="governance_score"/>
         <field name="total_score"/>
-      </list>
+      </tree>
     </field>
   </record>
 
