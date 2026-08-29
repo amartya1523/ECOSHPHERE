@@ -41,3 +41,5 @@ export const getRelationOptions = (slug, field, query) => rpc(`/ecosphere/api/re
 export const createResource = (slug, values) => rpc(`/ecosphere/api/resources/${slug}/create`, {values});
 export const updateResource = (slug, id, values) => rpc(`/ecosphere/api/resources/${slug}/${id}/update`, {values});
 export const deleteResource = (slug, id) => rpc(`/ecosphere/api/resources/${slug}/${id}/delete`);
+export const getTeam = () => rpc('/ecosphere/api/team');
+export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});

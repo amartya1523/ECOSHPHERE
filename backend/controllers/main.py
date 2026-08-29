@@ -62,6 +62,10 @@ class EcoSphereAPI(http.Controller):
                 result[name] = value or False
         return result
 
+    def _require_manager(self):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_manager'):
+            raise ValidationError(_("Only an EcoSphere administrator can manage employee access."))
+
     @http.route('/ecosphere/api/resources/<string:slug>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_list(self, slug, limit=100, query=None):
         records, allowed = self._resource(slug)
@@ -108,24 +112,48 @@ class EcoSphereAPI(http.Controller):
         record.check_access_rule('unlink')
         record.unlink()
         return {'message': _("Deleted successfully.")}
-    @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
-    def signup(self, name, email, password):
+
+    @http.route('/ecosphere/api/team', type='json', auth='user', methods=['POST'], csrf=False)
+    def team_list(self):
+        self._require_manager()
+        user_group = request.env.ref('eco_sphere_esg.group_esg_user')
+        users = request.env['res.users'].with_context(active_test=False).search([
+            ('id', '!=', request.env.ref('base.user_root').id),
+            ('groups_id', 'in', user_group.id),
+        ], order='active desc, name')
+        return {'members': [{
+            'id': user.id, 'name': user.name, 'email': user.login,
+            'active': user.active,
+            'role': 'Administrator' if user.has_group('eco_sphere_esg.group_esg_manager') else 'Employee',
+        } for user in users]}
+
+    @http.route('/ecosphere/api/team/create', type='json', auth='user', methods=['POST'], csrf=False)
+    def team_create(self, name, email, password, department_id=None):
+        self._require_manager()
         name, email = (name or '').strip(), (email or '').strip().lower()
         if len(name) < 2 or '@' not in email or len(password or '') < 8:
-            raise ValidationError(_("Enter your name, a valid email address, and a password of at least 8 characters."))
+            raise ValidationError(_("Enter a name, valid work email, and password of at least 8 characters."))
         Users = request.env['res.users'].sudo()
         if Users.search_count([('login', '=', email)]):
             raise ValidationError(_("An account already exists for this email address."))
-        # This is a single-workspace local deployment: a self-registered account
-        # is the workspace owner. Production installations should disable this
-        # public route and provision users through an invitation/SSO flow.
-        group = request.env.ref('eco_sphere_esg.group_esg_manager').sudo()
+        employee_group = request.env.ref('eco_sphere_esg.group_esg_user').sudo()
         internal_group = request.env.ref('base.group_user').sudo()
         user = Users.with_context(no_reset_password=True).create({
             'name': name, 'login': email, 'email': email, 'password': password,
-            'groups_id': [(6, 0, [internal_group.id, group.id])],
+            'groups_id': [(6, 0, [internal_group.id, employee_group.id])],
         })
-        return {'id': user.id, 'login': user.login}
+        employee_values = {'name': name, 'user_id': user.id}
+        if department_id:
+            department = request.env['esg.department'].browse(int(department_id)).exists()
+            if not department:
+                raise ValidationError(_("Selected department no longer exists."))
+            employee_values['esg_department_id'] = department.id
+        request.env['hr.employee'].sudo().create(employee_values)
+        return {'id': user.id, 'message': _("Employee account created. Share the login credentials securely.")}
+
+    @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
+    def signup(self, name, email, password):
+        raise ValidationError(_("Account creation is managed by your EcoSphere administrator."))
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
