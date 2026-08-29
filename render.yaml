@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ecosphere
+    env: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecosphere-postgres
+          property: connectionString
+      - key: ODOO_DATABASE
+        fromDatabase:
+          name: ecosphere-postgres
+          property: database
+      - key: ODOO_AUTO_INIT
+        value: "1"
+      - key: FRONTEND_ODOO_BASE
+        value: /odoo
+
+databases:
+  - name: ecosphere-postgres
+    plan: starter

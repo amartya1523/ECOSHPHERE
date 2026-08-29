@@ -1,5 +1,24 @@
-const BASE = import.meta.env.VITE_ODOO_BASE || '/odoo';
-const ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere-db';
+const DEFAULT_BASE = import.meta.env.VITE_ODOO_BASE || '/odoo';
+const DEFAULT_ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere-db';
+
+let clientConfigPromise;
+
+async function getClientConfig() {
+  if (!clientConfigPromise) {
+    clientConfigPromise = fetch('/ecosphere/frontend-config.json', {cache: 'no-store'})
+      .then(async (response) => {
+        if (!response.ok) return {};
+        const text = await response.text();
+        return text.trim() ? JSON.parse(text) : {};
+      })
+      .catch(() => ({}))
+      .then((config) => ({
+        base: config.odooBase || DEFAULT_BASE,
+        db: config.odooDb || DEFAULT_ODOO_DB,
+      }));
+  }
+  return clientConfigPromise;
+}
 
 async function readJson(response, fallbackMessage) {
   const text = await response.text();
@@ -27,9 +46,10 @@ function throwJsonRpcError(body, fallbackMessage) {
 }
 
 export async function signIn(login, password) {
-  const response = await fetch(`${BASE}/web/session/authenticate`, {
+  const {base, db} = await getClientConfig();
+  const response = await fetch(`${base}/web/session/authenticate`, {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {db: ODOO_DB, login, password}}),
+    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {db, login, password}}),
   });
   const body = await readJson(response, 'Could not sign in.');
   throwJsonRpcError(body, 'Incorrect email or password.');
@@ -38,7 +58,8 @@ export async function signIn(login, password) {
 }
 
 export async function signUp(name, workspace_name, email, password) {
-  const response = await fetch(`${BASE}/ecosphere/api/signup`, {
+  const {base} = await getClientConfig();
+  const response = await fetch(`${base}/ecosphere/api/signup`, {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {name, workspace_name, email, password}}),
   });
@@ -49,14 +70,16 @@ export async function signUp(name, workspace_name, email, password) {
 }
 
 export async function getDashboard() {
-  const response = await fetch(`${BASE}/ecosphere/api/dashboard`, {credentials: 'include'});
+  const {base} = await getClientConfig();
+  const response = await fetch(`${base}/ecosphere/api/dashboard`, {credentials: 'include'});
   const body = await readJson(response, 'Could not load live EcoSphere data.');
   if (!response.ok) throw new Error('Could not load live EcoSphere data.');
   return body;
 }
 
 async function rpc(path, params = {}) {
-  const response = await fetch(`${BASE}${path}`, {
+  const {base} = await getClientConfig();
+  const response = await fetch(`${base}${path}`, {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method: 'call', params}),
   });
