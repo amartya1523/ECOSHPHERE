@@ -12,6 +12,11 @@ http {
     error_log /dev/stderr info;
     sendfile on;
     keepalive_timeout 65;
+    client_body_temp_path /tmp/nginx-client-body;
+    proxy_temp_path /tmp/nginx-proxy;
+    fastcgi_temp_path /tmp/nginx-fastcgi;
+    uwsgi_temp_path /tmp/nginx-uwsgi;
+    scgi_temp_path /tmp/nginx-scgi;
 
     upstream odoo_backend {
         server 127.0.0.1:${ODOO_HTTP_PORT};
