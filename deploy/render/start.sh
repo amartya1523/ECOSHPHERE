@@ -31,7 +31,7 @@ values = {
     "ODOO_DB_PORT": first("ODOO_DB_PORT", "POSTGRES_PORT", "PORT_DB") or "5432",
     "ODOO_DB_USER": first("ODOO_DB_USER", "POSTGRES_USER") or "odoo",
     "ODOO_DB_PASSWORD": first("ODOO_DB_PASSWORD", "POSTGRES_PASSWORD", "PASSWORD"),
-    "ODOO_DATABASE": first("ODOO_DATABASE", "POSTGRES_DB") or "ecosphere-db",
+    "ODOO_DATABASE": first("ODOO_DATABASE", "POSTGRES_DB") or "ecosphere_db",
 }
 
 if database_url:
@@ -60,7 +60,7 @@ import os
 
 config = {
     "odooBase": os.environ.get("FRONTEND_ODOO_BASE", "/odoo"),
-    "odooDb": os.environ.get("FRONTEND_ODOO_DB") or os.environ.get("ODOO_DATABASE") or "ecosphere-db",
+    "odooDb": os.environ.get("FRONTEND_ODOO_DB") or os.environ.get("ODOO_DATABASE") or "ecosphere_db",
 }
 with open("/tmp/ecosphere-frontend-config.json", "w", encoding="utf-8") as handle:
     json.dump(config, handle)

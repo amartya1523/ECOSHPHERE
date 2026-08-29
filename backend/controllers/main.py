@@ -3,6 +3,7 @@ import base64
 from odoo import http, _
 from odoo.http import request
 from odoo.exceptions import ValidationError
+from odoo.tools import html2plaintext
 
 
 class EcoSphereAPI(http.Controller):
@@ -18,8 +19,8 @@ class EcoSphereAPI(http.Controller):
         'employee-participation': ('esg.csr.participation', ('employee_id', 'activity_id', 'completion_date', 'state')),
         'diversity-dashboard': ('esg.diversity.metric', ('department_id', 'metric_type', 'value', 'period', 'notes')),
         'training-completions': ('esg.training.completion', ('name', 'employee_id', 'department_id', 'completion_date', 'status')),
-        'policies': ('esg.policy', ('name', 'reference', 'content', 'effective_date', 'state', 'active')),
-        'policy-acknowledgements': ('esg.policy.acknowledgement', ('policy_id', 'employee_id', 'state')),
+        'policies': ('esg.policy', ('name', 'category_id', 'version', 'effective_date', 'acknowledgement_required', 'acknowledgement_progress', 'state', 'assignment_type', 'assignment_department_id', 'assignment_employee_id', 'content', 'active')),
+        'policy-acknowledgements': ('esg.policy.acknowledgement', ('policy_id', 'employee_id', 'department_id', 'policy_version', 'acknowledged_on', 'state')),
         'audits': ('esg.audit', ('name', 'department_id', 'auditor_id', 'audit_date', 'findings', 'state')),
         'compliance-issues': ('esg.compliance.issue', ('name', 'audit_id', 'department_id', 'severity', 'description', 'owner_id', 'due_date', 'state')),
         'challenges': ('esg.challenge', ('name', 'category_id', 'description', 'xp_value', 'difficulty', 'evidence_required', 'deadline', 'state')),
@@ -40,7 +41,7 @@ class EcoSphereAPI(http.Controller):
 
     def _field_schema(self, records, allowed):
         fields_info = records.fields_get(list(allowed), attributes=['string', 'type', 'required', 'readonly', 'selection', 'relation'])
-        return [{'name': name, **fields_info[name]} for name in allowed if name in fields_info and not fields_info[name].get('readonly')]
+        return [{'name': name, **fields_info[name]} for name in allowed if name in fields_info]
 
     def _clean_values(self, records, allowed, values):
         if not isinstance(values, dict):
@@ -65,7 +66,7 @@ class EcoSphereAPI(http.Controller):
         return result
 
     def _require_manager(self):
-        if not request.env.user.has_group('eco_sphere_esg.group_esg_manager'):
+        if not request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
             raise ValidationError(_("Only an EcoSphere administrator can manage employee access."))
 
     def _require_managed_resource(self, slug):
@@ -117,7 +118,15 @@ class EcoSphereAPI(http.Controller):
         domain = [('display_name', 'ilike', query)] if query else []
         rows = records.search_read(domain, list(allowed), limit=min(max(int(limit or 100), 1), 200), order='id desc')
         managed = slug == 'diversity-dashboard' and not request.env.user.has_group('eco_sphere_esg.group_esg_manager')
-        return {'records': rows, 'fields': self._field_schema(records, allowed), 'can_create': False if managed else records.check_access_rights('create', raise_exception=False), 'can_write': False if managed else records.check_access_rights('write', raise_exception=False), 'can_delete': False if managed else records.check_access_rights('unlink', raise_exception=False)}
+        is_admin = request.env.user.has_group('eco_sphere_esg.group_esg_admin')
+        return {
+            'records': rows,
+            'fields': self._field_schema(records, allowed),
+            'can_create': False if managed else records.check_access_rights('create', raise_exception=False),
+            'can_write': False if managed else records.check_access_rights('write', raise_exception=False),
+            'can_delete': False if managed else records.check_access_rights('unlink', raise_exception=False),
+            'is_manager': is_admin,
+        }
 
     @http.route('/ecosphere/api/resources/<string:slug>/options/<string:field_name>', type='json', auth='user', methods=['POST'], csrf=False)
     def resource_options(self, slug, field_name, query=None):
@@ -125,6 +134,8 @@ class EcoSphereAPI(http.Controller):
         if field_name not in allowed or records._fields[field_name].type != 'many2one':
             raise ValidationError(_("Invalid relation field."))
         relation = request.env[records._fields[field_name].comodel_name]
+        if slug == 'policies' and field_name == 'assignment_employee_id' and request.env.user.has_group('eco_sphere_esg.group_esg_admin'):
+            relation = relation.sudo()
         relation.check_access_rights('read')
         domain = [('display_name', 'ilike', query)] if query else []
         return relation.name_search(name=query or '', args=domain, limit=100)
@@ -160,6 +171,126 @@ class EcoSphereAPI(http.Controller):
         record.check_access_rule('unlink')
         record.unlink()
         return {'message': _("Deleted successfully.")}
+
+    @http.route('/ecosphere/api/policies/<int:policy_id>/<string:action>', type='json', auth='user', methods=['POST'], csrf=False)
+    def policy_action(self, policy_id, action):
+        policy = request.env['esg.policy'].browse(policy_id).exists()
+        if not policy:
+            raise ValidationError(_("This policy no longer exists."))
+        if action == 'publish':
+            policy.action_publish()
+            return {'message': _("Policy published and assigned.")}
+        if action == 'activate':
+            policy.action_activate()
+            return {'message': _("Policy activated.")}
+        if action == 'archive':
+            policy.action_archive()
+            return {'message': _("Policy archived.")}
+        if action == 'remind':
+            count = policy.action_send_acknowledgement_reminders()
+            return {'message': _("Sent %(count)s acknowledgement reminder(s).") % {'count': count}}
+        raise ValidationError(_("Unknown policy action."))
+
+    @http.route('/ecosphere/api/policy-acknowledgements/<int:acknowledgement_id>/acknowledge', type='json', auth='user', methods=['POST'], csrf=False)
+    def policy_acknowledge(self, acknowledgement_id):
+        acknowledgement = request.env['esg.policy.acknowledgement'].browse(acknowledgement_id).exists()
+        if not acknowledgement:
+            raise ValidationError(_("This acknowledgement is no longer available."))
+        acknowledgement.action_acknowledge()
+        return {'message': _("Policy acknowledged.")}
+
+    def _policy_assignment_summary(self, policy):
+        if policy.assignment_type == 'department':
+            return _("Department: %s") % (policy.assignment_department_id.display_name or _("Unassigned"))
+        if policy.assignment_type == 'employee':
+            return _("Employee: %s") % (policy.assignment_employee_id.display_name or _("Unassigned"))
+        return _("All employees")
+
+    def _policy_row(self, policy, is_admin):
+        own_ack = policy.acknowledgement_ids.filtered(lambda row: row.employee_id == request.env.user.employee_id)[:1]
+        acknowledgements = policy.acknowledgement_ids.sudo() if is_admin else own_ack
+        return {
+            'id': policy.id,
+            'name': policy.name,
+            'category': policy.category_id.display_name or '',
+            'category_id': policy.category_id.id or False,
+            'version': policy.version,
+            'effective_date': str(policy.effective_date or ''),
+            'acknowledgement_required': policy.acknowledgement_required,
+            'acknowledgement_progress': round(policy.acknowledgement_progress or 0.0),
+            'acknowledged_count': policy.acknowledged_count,
+            'pending_count': policy.pending_count,
+            'acknowledgement_total': policy.acknowledgement_total,
+            'state': 'active' if policy.state == 'effective' else policy.state,
+            'assignment_type': policy.assignment_type,
+            'assignment_department_id': policy.assignment_department_id.id or False,
+            'assignment_employee_id': policy.assignment_employee_id.id or False,
+            'assignment_summary': self._policy_assignment_summary(policy),
+            'content': policy.content or '',
+            'content_text': html2plaintext(policy.content or '').strip(),
+            'active': policy.active,
+            'my_acknowledgement': own_ack and {
+                'id': own_ack.id,
+                'state': own_ack.state,
+                'acknowledged_on': str(own_ack.acknowledged_on or ''),
+            } or False,
+            'acknowledgements': [{
+                'id': acknowledgement.id,
+                'employee': acknowledgement.employee_id.display_name,
+                'department': acknowledgement.department_id.display_name or '',
+                'state': acknowledgement.state,
+                'acknowledged_on': str(acknowledgement.acknowledged_on or ''),
+            } for acknowledgement in acknowledgements],
+            'version_history': [{
+                'id': row.id,
+                'version': row.version,
+                'state': 'active' if row.state == 'effective' else row.state,
+                'effective_date': str(row.effective_date or ''),
+            } for row in request.env['esg.policy'].search([('name', '=', policy.name)], order='effective_date desc, id desc')],
+        }
+
+    @http.route('/ecosphere/api/policy-workspace', type='json', auth='user', methods=['POST'], csrf=False)
+    def policy_workspace(self, query=None, status='all', acknowledgement='all'):
+        is_admin = request.env.user.has_group('eco_sphere_esg.group_esg_admin')
+        Policy = request.env['esg.policy']
+        policies = Policy.search([], order='effective_date desc, id desc')
+        rows = [self._policy_row(policy, is_admin) for policy in policies]
+        if query:
+            needle = query.strip().lower()
+            rows = [row for row in rows if needle in ' '.join([row['name'], row['category'], row['version'], row['assignment_summary']]).lower()]
+        if status and status != 'all':
+            rows = [row for row in rows if row['state'] == status]
+        if acknowledgement == 'required':
+            rows = [row for row in rows if row['acknowledgement_required']]
+        elif acknowledgement == 'optional':
+            rows = [row for row in rows if not row['acknowledgement_required']]
+        elif acknowledgement == 'pending':
+            if is_admin:
+                rows = [row for row in rows if row['pending_count'] > 0]
+            else:
+                rows = [row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'pending']
+        elif acknowledgement == 'acknowledged' and not is_admin:
+            rows = [row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'acknowledged']
+        total = len(rows)
+        active = len([row for row in rows if row['state'] == 'active'])
+        pending = sum(row['pending_count'] for row in rows) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'pending'])
+        required = sum(row['acknowledgement_total'] for row in rows if row['acknowledgement_required']) if is_admin else len([row for row in rows if row['acknowledgement_required']])
+        acknowledged = sum(row['acknowledged_count'] for row in rows if row['acknowledgement_required']) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'acknowledged'])
+        return {
+            'is_manager': is_admin,
+            'can_create': Policy.check_access_rights('create', raise_exception=False),
+            'can_write': Policy.check_access_rights('write', raise_exception=False),
+            'policies': rows,
+            'metrics': {
+                'total': total,
+                'active': active,
+                'pending': pending,
+                'acknowledgement_rate': round(acknowledged * 100.0 / required) if required else 0,
+            },
+            'categories': request.env['esg.category'].name_search('', args=[('category_type', '=', 'governance')], limit=100),
+            'departments': request.env['esg.department'].name_search('', limit=100) if is_admin else [],
+            'employees': request.env['hr.employee'].sudo().name_search('', limit=100) if is_admin else [],
+        }
 
     @http.route('/ecosphere/api/team', type='json', auth='user', methods=['POST'], csrf=False)
     def team_list(self):

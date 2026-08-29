@@ -37,7 +37,20 @@ class ESGDepartmentScore(models.Model):
 
         issues = self.env["esg.compliance.issue"].search_count([("department_id", "=", department.id)])
         overdue = self.env["esg.compliance.issue"].search_count([("department_id", "=", department.id), ("is_overdue", "=", True)])
-        governance = 100.0 if not issues else max(0.0, 100.0 - overdue * 100.0 / issues)
+        issue_score = 100.0 if not issues else max(0.0, 100.0 - overdue * 100.0 / issues)
+        acknowledgements = self.env["esg.policy.acknowledgement"].search_count([
+            ("policy_id.acknowledgement_required", "=", True),
+            ("policy_id.state", "in", ["published", "active", "effective"]),
+            ("employee_id.esg_department_id", "child_of", department.id),
+        ])
+        acknowledged = self.env["esg.policy.acknowledgement"].search_count([
+            ("policy_id.acknowledgement_required", "=", True),
+            ("policy_id.state", "in", ["published", "active", "effective"]),
+            ("employee_id.esg_department_id", "child_of", department.id),
+            ("state", "=", "acknowledged"),
+        ])
+        policy_score = 100.0 if not acknowledgements else acknowledged * 100.0 / acknowledgements
+        governance = (issue_score + policy_score) / 2.0
         return {"environmental_score": environmental, "social_score": social, "governance_score": governance}
 
     @api.model

@@ -22,7 +22,7 @@ access_esg_training_completion_user,esg.training.completion user,model_esg_train
 access_esg_training_completion_manager,esg.training.completion manager,model_esg_training_completion,group_esg_admin,1,1,1,1
 access_esg_policy_user,esg.policy user,model_esg_policy,group_esg_user,1,0,0,0
 access_esg_policy_manager,esg.policy manager,model_esg_policy,group_esg_admin,1,1,1,1
-access_esg_policy_ack_user,esg.policy.ack user,model_esg_policy_acknowledgement,group_esg_user,1,1,1,0
+access_esg_policy_ack_user,esg.policy.ack user,model_esg_policy_acknowledgement,group_esg_user,1,1,0,0
 access_esg_policy_ack_manager,esg.policy.ack manager,model_esg_policy_acknowledgement,group_esg_admin,1,1,1,1
 access_esg_audit_user,esg.audit user,model_esg_audit,group_esg_user,1,0,0,0
 access_esg_audit_manager,esg.audit manager,model_esg_audit,group_esg_admin,1,1,1,1
