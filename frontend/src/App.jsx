@@ -578,8 +578,16 @@ export default function App() {
   };
   useEffect(() => {
     const handleNavigation = () => setView(viewForPath());
+    const expireSession = () => {
+      window.history.pushState({}, '', '/signin');
+      setView('login');
+    };
     window.addEventListener('popstate', handleNavigation);
-    return () => window.removeEventListener('popstate', handleNavigation);
+    window.addEventListener('ecosphere:session-expired', expireSession);
+    return () => {
+      window.removeEventListener('popstate', handleNavigation);
+      window.removeEventListener('ecosphere:session-expired', expireSession);
+    };
   }, []);
   return (
     <AnimatePresence mode="wait">
