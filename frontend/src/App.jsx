@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { archiveSocialActivity, createChallenge, createResource, createSocialActivity, createTeamMember, deleteResource, getDashboard, getGamification, getRelationOptions, getResource, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, reviewChallenge, reviewSocialParticipation, signIn, signUp, submitSocialParticipation, updateResource, updateSocialActivity } from './api';
+import { useEffect, useRef, useState } from 'react';
+import LandingPage from './LandingPage';
+import { archiveDepartment, archiveSocialActivity, createChallenge, createResource, createSocialActivity, createTeamMember, deleteResource, getDashboard, getGamification, getRelationOptions, getResource, getSettings, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, reviewChallenge, reviewSocialParticipation, saveDepartment, saveProfileSettings, saveWorkspaceSettings, signIn, signUp, submitSocialParticipation, updateResource, updateSocialActivity } from './api';
 import { AnimatePresence, motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import {
   ArrowUpRight, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
@@ -43,7 +44,7 @@ function Mark() { return <div className="mark"><span /><span /><span /></div>; }
 
 function Login({ onLogin }) {
   const demoAccounts={admin:{email:'admin@ecosphere.local',password:'Admin@EcoSphere2026',label:'Administrator'},employee:{email:'employee@ecosphere.local',password:'Employee@EcoSphere2026',label:'Employee'}};
-  const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [accountKind,setAccountKind]=useState('admin'); const [credentials,setCredentials]=useState(demoAccounts.admin); const [createAdmin,setCreateAdmin]=useState(false);
+  const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [accountKind,setAccountKind]=useState('admin'); const [credentials,setCredentials]=useState(demoAccounts.admin); const [createAdmin,setCreateAdmin]=useState(()=>window.location.pathname === '/signup'); useEffect(()=>{const path=createAdmin?'/signup':'/signin';if(['/signin','/signup'].includes(window.location.pathname)&&window.location.pathname!==path)window.history.replaceState({},'',path);},[createAdmin]);
   const selectAccount = (kind) => { setAccountKind(kind); setCredentials(demoAccounts[kind]); setError(''); };
   const submit = async (event) => { event.preventDefault(); setError(''); setLoading(true); try { await signIn(credentials.email, credentials.password); onLogin(); } catch (requestError) { setError(requestError.message); setLoading(false); } };
   const createEnterpriseAdmin = async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name') || '').trim(); const workspaceName = String(form.get('workspace_name') || '').trim(); const email = String(form.get('email') || '').trim(); const password = String(form.get('password') || ''); const confirmPassword = String(form.get('confirm_password') || ''); if (password !== confirmPassword) { setError('Passwords do not match.'); return; } setError(''); setLoading(true); try { await signUp(name, workspaceName, email, password); await signIn(email, password); onLogin(); } catch (requestError) { setError(requestError.message); setLoading(false); } };
@@ -173,12 +174,24 @@ function GamificationWorkspace({ onNotify }) {
  return <section className="module-workspace module-gamification gamification-workspace"><div className="module-header"><div><span className="eyebrow orange-text">GAMIFICATION WORKSPACE</span><h1>{data?.is_manager ? 'Challenges & recognition' : 'Your sustainability challenges'}</h1><p>{data?.is_manager ? 'Create live challenges and give your team meaningful ways to participate.' : 'Join active challenges, earn recognition, and follow your progress.'}</p></div>{data?.is_manager && <button className="primary-btn" onClick={()=>setCreating(true)}><Plus size={18}/> Create challenge</button>}</div><div className="game-tabs">{[['active','Active'],['draft','Draft'],['under_review','Under review'],['completed','Completed'],['all','All challenges']].filter(([key])=>data?.is_manager || key==='active').map(([key,label])=><button key={key} className={filter===key?'selected':''} onClick={()=>setFilter(key)}>{label}</button>)}</div>{error&&<p className="form-error">{error}</p>}<section className="challenge-grid">{rows.length?rows.map(challenge=><article className="challenge-card" key={challenge.id}><div className="challenge-top"><span className={`state-pill ${challenge.state}`}>{challenge.state.replace('_',' ')}</span><span className="xp-chip">{challenge.xp_value} XP</span></div><h3>{challenge.name}</h3><p>{plain(challenge.description) || 'No description added yet.'}</p><div className="challenge-meta"><span>{challenge.difficulty}</span><span>Due {challenge.deadline || '—'}</span><span>{challenge.participants} joined</span></div>{data?.is_manager ? <div className="manager-hint">Visible to employees when active</div> : challenge.participation ? <div className="joined-state"><span>{challenge.participation.progress}% progress</span><b>{challenge.participation.state.replace('_',' ')}</b></div> : <button className="challenge-join" disabled={!data?.can_join || joining===challenge.id} onClick={()=>join(challenge.id)}>{joining===challenge.id?'Joining…':data?.can_join?'Join challenge':'Ask admin for employee access'} <ArrowUpRight size={15}/></button>}</article>):<div className="empty-state game-empty"><Trophy size={24}/><strong>No challenges in this view</strong><span>{data?.is_manager?'Create the first challenge for your team.':'Your administrator has not published an active challenge yet.'}</span></div>}</section><section className="game-lower"><article className="data-surface badge-panel"><div className="panel-title"><div><span className="eyebrow orange-text">BADGE GALLERY</span><h3>{data?.is_manager?'Recognition badges':'Your badge progress'}</h3></div></div><div className="badge-grid">{(data?.badges||[]).length?(data.badges||[]).map(badge=><div className={`badge-tile ${badge.unlocked?'unlocked':''}`} key={badge.id}><Trophy size={16}/><div><strong>{badge.name}</strong><span>{badge.unlocked?'Unlocked':`${badge.minimum_xp} XP needed`}</span></div></div>):<p className="panel-empty">No badges have been configured yet.</p>}</div></article><article className="data-surface leaderboard-panel"><div className="panel-title"><div><span className="eyebrow orange-text">LEADERBOARD</span><h3>Team momentum</h3></div></div>{(data?.leaderboard||[]).length?<div className="leader-list">{data.leaderboard.map(row=><div key={`${row.rank}-${row.name}`}><b>#{row.rank}</b><strong>{row.name}</strong><span>{row.xp} XP</span></div>)}</div>:<p className="panel-empty">The leaderboard appears after challenge approvals.</p>}</article></section>{creating&&<div className="modal-scrim"><motion.form className="record-modal" onSubmit={create} initial={{opacity:0,scale:.96,y:16}} animate={{opacity:1,scale:1,y:0}} transition={{type:'spring',stiffness:260,damping:25}}><div className="modal-heading"><div><span className="eyebrow orange-text">ADMIN PORTAL</span><h2>Create challenge</h2></div><button type="button" className="icon-btn" onClick={()=>setCreating(false)}><X size={18}/></button></div><div className="form-grid"><label>Challenge name<input name="name" required placeholder="e.g. Plastic-free week"/></label><label>XP reward<input name="xp_value" type="number" min="0" defaultValue="100" required/></label><label>Difficulty<select name="difficulty" defaultValue="medium"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label><label>Publish status<select name="state" defaultValue="active"><option value="active">Active — employees can join</option><option value="draft">Draft — only admins can see it</option></select></label><label>Deadline<input name="deadline" type="date" required/></label><label className="wide-field">Description<textarea name="description" required placeholder="Explain the action employees should take and the impact it creates."/></label></div><div className="modal-actions"><button type="button" className="cancel-btn" onClick={()=>setCreating(false)}>Cancel</button><button className="primary-btn" disabled={saving}>{saving?'Publishing…':'Create challenge'} <ArrowUpRight size={16}/></button></div></motion.form></div>}</section>;
 }
 
+function SettingsWorkspace({ onNotify }) {
+ const [data,setData]=useState(null); const [error,setError]=useState(''); const [saving,setSaving]=useState(false); const [department,setDepartment]=useState(null);
+ const load=async()=>{try{setData(await getSettings());setError('');}catch(err){setError(err.message);}}; useEffect(()=>{load();},[]);
+ const saveProfile=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setSaving(true);try{const response=await saveProfileSettings({name:form.get('name'),email_notifications:form.get('email_notifications')==='on',in_app_notifications:form.get('in_app_notifications')==='on'});setData(response);onNotify(response.message);}catch(err){setError(err.message);}finally{setSaving(false);}};
+ const saveWorkspace=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setSaving(true);try{const configuration=Object.fromEntries(['environmental_weight','social_weight','governance_weight','auto_emission_calculation','require_csr_evidence','auto_award_badges','compliance_notifications','csr_notifications','challenge_notifications'].map(key=>[key,key.includes('weight')?form.get(key):form.get(key)==='on']));const response=await saveWorkspaceSettings(form.get('workspace_name'),configuration);setData(response);onNotify(response.message);}catch(err){setError(err.message);}finally{setSaving(false);}};
+ const saveDept=async event=>{event.preventDefault();const form=new FormData(event.currentTarget);setSaving(true);try{const response=await saveDepartment({department_id:department?.id,name:form.get('name'),code:form.get('code')});setData(response);setDepartment(null);onNotify(response.message);}catch(err){setError(err.message);}finally{setSaving(false);}};
+ const archive=async id=>{if(!window.confirm('Archive this department? Existing records remain available.'))return;try{const response=await archiveDepartment(id);setData(response);onNotify(response.message);}catch(err){setError(err.message);}};
+ const profile=data?.profile; const config=data?.configuration;
+ if(!data)return <section className="module-workspace"><div className="empty-state"><Settings size={24}/><strong>Loading settings…</strong></div></section>;
+ return <section className="module-workspace settings-workspace"><div className="module-header"><div><span className="eyebrow">{data.is_manager?'WORKSPACE ADMINISTRATION':'PERSONAL SETTINGS'}</span><h1>{data.is_manager?'Settings & administration':'My settings'}</h1><p>{data.is_manager?'Configure your enterprise, departments, ESG controls, and notification policy.':'Manage your profile and how EcoSphere notifies you. Enterprise controls are managed by your administrator.'}</p></div></div>{error&&<p className="form-error">{error}</p>}<div className="settings-grid"><form className="settings-card" onSubmit={saveProfile}><span className="eyebrow green-text">MY PROFILE</span><h3>Personal preferences</h3><label>Full name<input name="name" defaultValue={profile.name} required minLength="2"/></label><label>Work email<input value={profile.email} readOnly aria-readonly="true"/></label><label className="settings-toggle"><input name="email_notifications" type="checkbox" defaultChecked={profile.email_notifications}/><span><b>Email notifications</b><small>Receive important workflow updates by email.</small></span></label><label className="settings-toggle"><input name="in_app_notifications" type="checkbox" defaultChecked={profile.in_app_notifications}/><span><b>In-app notifications</b><small>Show reminders and approvals inside EcoSphere.</small></span></label><button className="primary-btn" disabled={saving}>{saving?'Saving…':'Save my settings'} <ArrowUpRight size={16}/></button></form>{data.is_manager&&<form className="settings-card" onSubmit={saveWorkspace}><span className="eyebrow violet-text">ENTERPRISE</span><h3>Workspace configuration</h3><label>Workspace name<input name="workspace_name" defaultValue={data.workspace.name} required minLength="2"/></label><div className="weight-grid"><label>Environmental %<input name="environmental_weight" type="number" min="0" max="100" step="0.1" defaultValue={config.environmental_weight}/></label><label>Social %<input name="social_weight" type="number" min="0" max="100" step="0.1" defaultValue={config.social_weight}/></label><label>Governance %<input name="governance_weight" type="number" min="0" max="100" step="0.1" defaultValue={config.governance_weight}/></label></div><small className="settings-note">ESG weights must add up to 100%.</small>{[['auto_emission_calculation','Auto-calculate emissions'],['require_csr_evidence','Require proof for CSR activity approval'],['auto_award_badges','Auto-award achievement badges'],['compliance_notifications','Compliance issue notifications'],['csr_notifications','CSR review notifications'],['challenge_notifications','Challenge review notifications']].map(([key,label])=><label className="settings-toggle" key={key}><input name={key} type="checkbox" defaultChecked={config[key]}/><span><b>{label}</b></span></label>)}<button className="primary-btn" disabled={saving}>{saving?'Saving…':'Save workspace configuration'} <ArrowUpRight size={16}/></button></form>}</div>{data.is_manager&&<section className="data-surface settings-department-panel"><div className="panel-title"><div><span className="eyebrow">ORGANISATION STRUCTURE</span><h3>Departments</h3><p className="panel-copy">Departments belong only to {data.workspace.name}.</p></div><button className="primary-btn" onClick={()=>setDepartment({})}><Plus size={16}/> Add department</button></div>{data.departments.length?<div className="data-table-wrap"><table><thead><tr><th>Name</th><th>Code</th><th>Employees</th><th>Status</th><th/></tr></thead><tbody>{data.departments.map(row=><tr key={row.id}><td>{row.name}</td><td>{row.code}</td><td>{row.employees}</td><td>{row.active?'Active':'Archived'}</td><td className="row-actions"><button onClick={()=>setDepartment(row)}>Edit</button>{row.active&&<button onClick={()=>archive(row.id)}>Archive</button>}</td></tr>)}</tbody></table></div>:<div className="empty-state"><Building2 size={23}/><strong>No departments yet</strong><span>Create your first department for this enterprise.</span></div>}</section>}{department&&<div className="modal-scrim"><motion.form className="record-modal" onSubmit={saveDept} initial={{opacity:0,scale:.96,y:16}} animate={{opacity:1,scale:1,y:0}}><div className="modal-heading"><div><span className="eyebrow">ORGANISATION STRUCTURE</span><h2>{department.id?'Edit department':'Add department'}</h2></div><button className="icon-btn" type="button" onClick={()=>setDepartment(null)}><X size={18}/></button></div><div className="form-grid"><label>Department name<input name="name" defaultValue={department.name||''} required minLength="2" placeholder="e.g. Operations"/></label><label>Department code<input name="code" defaultValue={department.code||''} required minLength="2" placeholder="e.g. OPS"/></label></div><div className="modal-actions"><button className="cancel-btn" type="button" onClick={()=>setDepartment(null)}>Cancel</button><button className="primary-btn" disabled={saving}>{saving?'Saving…':'Save department'} <ArrowUpRight size={16}/></button></div></motion.form></div>}</section>;
+}
+
 function ReportsWorkspace({ onNotify }) { return <section className="module-workspace"><div className="module-header"><div><span className="eyebrow">REPORTING CENTRE</span><h1>Reports</h1><p>Generate trusted ESG outputs from the records stored in your EcoSphere workspace.</p></div></div><div className="report-grid">{['Environmental report','Social report','Governance report','ESG summary'].map(name=><article key={name} className="report-card"><FileBarChart size={22}/><h3>{name}</h3><p>Use the connected Odoo reporting engine to prepare a formal, export-ready report.</p><button className="text-button" onClick={()=>onNotify(`${name} is prepared from your saved EcoSphere records.`)}>Prepare report <ArrowUpRight size={15}/></button></article>)}</div></section>; }
 
 function TeamAccess({ onNotify }) {
  const [team,setTeam]=useState([]); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [saving,setSaving]=useState(false);
  const load=async()=>{setLoading(true);try{const data=await getTeam();setTeam(data.members);setError('');}catch(e){setError(e.message);}finally{setLoading(false);}}; useEffect(()=>{load();},[]);
- const submit=async e=>{e.preventDefault();const form=new FormData(e.currentTarget);setSaving(true);try{await createTeamMember(form.get('name'),form.get('email'),form.get('password'));e.currentTarget.reset();await load();onNotify('Employee account created. Share the credentials securely.');}catch(err){setError(err.message);}finally{setSaving(false);}};
+ const submit=async e=>{e.preventDefault();const formElement=e.currentTarget;const form=new FormData(formElement);setSaving(true);setError('');try{await createTeamMember(form.get('name'),form.get('email'),form.get('password'));formElement.reset();await load();onNotify('Employee account created. Share the credentials securely.');}catch(err){setError(err.message);}finally{setSaving(false);}};
  return <section className="module-workspace"><div className="module-header"><div><span className="eyebrow">ADMINISTRATION</span><h1>Team access</h1><p>Create employee logins and manage who can access your EcoSphere enterprise.</p></div></div><div className="team-layout"><form className="team-create" onSubmit={submit}><h3>Create employee account</h3><p>Employees receive an email and password from an administrator. Public sign-up is disabled.</p><label>Full name<input name="name" required placeholder="Employee name"/></label><label>Work email<input name="email" type="email" required placeholder="employee@company.com"/></label><label>Temporary password<input name="password" type="password" minLength="8" required placeholder="At least 8 characters"/></label>{error&&<p className="form-error">{error}</p>}<button className="primary-btn" disabled={saving}>{saving?'Creating…':'Create employee account'} <ArrowUpRight size={16}/></button></form><section className="data-surface team-list"><div className="panel-title"><div><span className="eyebrow">ENTERPRISE MEMBERS</span><h3>{loading?'Loading members…':`${team.length} member${team.length===1?'':'s'}`}</h3></div><button className="soft-btn" onClick={load}>Refresh</button></div>{team.map(member=><div className="team-row" key={member.id}><div className="person-avatar">{member.name.split(' ').map(p=>p[0]).join('').slice(0,2)}</div><div><strong>{member.name}</strong><span>{member.email}</span></div><b className={member.role==='Administrator'?'role-admin':''}>{member.role}</b></div>)}</section></div></section>;
 }
 
@@ -231,15 +244,264 @@ function PillarWorkspace({ pillar, onNavigate }) {
 }
 
 function Dashboard({ onLogout }) {
- const [active,setActive] = useState('Overview'); const [menu,setMenu]=useState(false); const [collapsed,setCollapsed]=useState(false); const [live,setLive]=useState(null); const [notice,setNotice]=useState(''); const { scrollY }=useScroll(); const glowY=useSpring(useTransform(scrollY,[0,700],[0,150]),{stiffness:90,damping:25});
- useEffect(() => { getDashboard().then(setLive).catch(() => setLive(null)); }, []);
- useEffect(() => { window.dispatchEvent(new CustomEvent('ecosphere:module-change', { detail: active })); }, [active]);
- const shownKpis = [{label:'Environmental',score:live?.kpis?.environmental ?? 0,delta:'Calculated',color:'green'},{label:'Social',score:live?.kpis?.social ?? 0,delta:'Calculated',color:'blue'},{label:'Governance',score:live?.kpis?.governance ?? 0,delta:'Calculated',color:'violet'},{label:'Overall ESG',score:live?.kpis?.overall ?? 0,delta:'Calculated',color:'ink'}]; const counts = live?.counts || {carbon_transactions:0, environmental_goals:0, csr_activities:0, active_challenges:0, open_issues:0};
- const notify = message => { setNotice(message); window.setTimeout(() => setNotice(''), 3600); };
- const overview = <><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">LIVE ESG DASHBOARD</span><h1>Welcome, {live?.user?.name || '…'}.</h1><p>All values below are calculated from saved EcoSphere records.</p></div><button className="primary-btn" onClick={()=>setActive('Carbon transactions')}><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{shownKpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard count={counts.carbon_transactions} onOpen={()=>setActive('Carbon transactions')}/><PeopleCard counts={counts} onOpen={()=>setActive('CSR activities')}/></section><section className="bento lower-bento"><RankingCard ranking={live?.ranking || []}/><section className="panel next-card"><span className="eyebrow orange-text">GOVERNANCE</span><h3>{counts.open_issues} open compliance issue{counts.open_issues === 1 ? '' : 's'}</h3><p>This is the current count from your saved compliance records.</p><div><span className="date-chip"><ClipboardCheck size={17}/></span><button className="round-action" onClick={()=>setActive('Compliance issues')}><ArrowUpRight size={18}/></button></div></section></section></>;
- const sideW = collapsed ? 64 : 252;
- return <div className="app-shell"><Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu} collapsed={collapsed} setCollapsed={setCollapsed} user={live?.user}/><main className="workspace-main" style={{marginLeft:sideW,width:`calc(100% - ${sideW}px)`}}><motion.div className="dashboard-glow" style={{y:glowY}}/><header className="topbar"><button className="mobile-menu" onClick={()=>setMenu(true)}><Menu size={21}/></button><div className="crumb"><span>EcoSphere</span><ChevronRight size={14}/><strong>{active}</strong></div><div className="top-actions"><button className="search" onClick={()=>document.querySelector('.table-search input')?.focus()}><Search size={17}/><span>Search workspace</span><kbd>⌘ K</kbd></button><button className="icon-btn notification" onClick={()=>notify('Notifications are based on your live workflow settings.')}><Bell size={19}/><i/></button><button className="top-avatar">{live?.user?.initials || '—'}</button><button className="logout" onClick={onLogout} title="Sign out"><LogOut size={17}/></button></div></header><div className="content">{active === 'Overview' ? overview : active === 'Reports' ? <ReportsWorkspace onNotify={notify}/> : active === 'Team access' ? <TeamAccess onNotify={notify}/> : ['Environmental','Social','Governance'].includes(active) ? <PillarWorkspace pillar={active} onNavigate={setActive}/> : ['Gamification','Challenges','Participation','Badges & rewards','Leaderboard'].includes(active) ? <PlayableGamificationWorkspace onNotify={notify} active={active}/> : <ModuleWorkspace label={active} onNotify={notify}/>}</div>{notice && <motion.div className="toast" initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:1,y:0}}>{notice}</motion.div>}</main></div>
+  const [active,setActive] = useState('Overview');
+  const [menu,setMenu] = useState(false);
+  const [collapsed,setCollapsed] = useState(false);
+  const [live,setLive] = useState(null);
+  const [notice,setNotice] = useState('');
+  const [showSearch,setShowSearch] = useState(false);
+  const [searchQuery,setSearchQuery] = useState('');
+  const [showNotifs,setShowNotifs] = useState(false);
+  const [showProfile,setShowProfile] = useState(false);
+  const searchRef = useRef(null);
+  const { scrollY } = useScroll();
+  const glowY = useSpring(useTransform(scrollY,[0,700],[0,150]),{stiffness:90,damping:25});
+
+  useEffect(() => { getDashboard().then(setLive).catch(() => setLive(null)); }, []);
+  useEffect(() => { window.dispatchEvent(new CustomEvent('ecosphere:module-change', { detail: active })); }, [active]);
+
+  // ⌘K / Ctrl+K opens search
+  useEffect(() => {
+    const handler = e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowSearch(true); setShowNotifs(false); setShowProfile(false); }
+      if (e.key === 'Escape') { setShowSearch(false); setShowNotifs(false); setShowProfile(false); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Focus search input when modal opens
+  useEffect(() => { if (showSearch) setTimeout(() => searchRef.current?.focus(), 60); }, [showSearch]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    if (!showNotifs && !showProfile) return;
+    const handler = e => {
+      if (!e.target.closest('.topbar-dropdown-wrap')) { setShowNotifs(false); setShowProfile(false); }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNotifs, showProfile]);
+
+  const shownKpis = [
+    {label:'Environmental',score:live?.kpis?.environmental ?? 0,delta:'Calculated',color:'green'},
+    {label:'Social',score:live?.kpis?.social ?? 0,delta:'Calculated',color:'blue'},
+    {label:'Governance',score:live?.kpis?.governance ?? 0,delta:'Calculated',color:'violet'},
+    {label:'Overall ESG',score:live?.kpis?.overall ?? 0,delta:'Calculated',color:'ink'},
+  ];
+  const counts = live?.counts || {carbon_transactions:0, environmental_goals:0, csr_activities:0, active_challenges:0, open_issues:0};
+  const notify = message => { setNotice(message); window.setTimeout(() => setNotice(''), 3600); };
+
+  // Quick-navigate destinations shown in search
+  const allDestinations = [
+    {label:'Overview', icon:'📊', section:'Overview'},
+    {label:'Carbon transactions', icon:'🌿', section:'Carbon transactions'},
+    {label:'Emission factors', icon:'⚗️', section:'Emission factors'},
+    {label:'Product ESG profiles', icon:'📦', section:'Product ESG profiles'},
+    {label:'Environmental goals', icon:'🎯', section:'Environmental goals'},
+    {label:'CSR activities', icon:'🤝', section:'CSR activities'},
+    {label:'Employee participation', icon:'👥', section:'Employee participation'},
+    {label:'Diversity dashboard', icon:'🌈', section:'Diversity dashboard'},
+    {label:'Policies', icon:'📋', section:'Policies'},
+    {label:'Policy acknowledgements', icon:'✅', section:'Policy acknowledgements'},
+    {label:'Audits', icon:'🔍', section:'Audits'},
+    {label:'Compliance issues', icon:'⚠️', section:'Compliance issues'},
+    {label:'Challenges', icon:'🏆', section:'Challenges'},
+    {label:'Participation', icon:'🎮', section:'Participation'},
+    {label:'Badges & rewards', icon:'🎖️', section:'Badges & rewards'},
+    {label:'Leaderboard', icon:'📈', section:'Leaderboard'},
+    {label:'Reports', icon:'📄', section:'Reports'},
+    {label:'Team access', icon:'👤', section:'Team access'},
+    {label:'Settings', icon:'⚙️', section:'Settings'},
+  ];
+  const filteredSearch = searchQuery.trim()
+    ? allDestinations.filter(d => d.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : allDestinations.slice(0, 8);
+
+  const navigateTo = dest => { setActive(dest); setShowSearch(false); setSearchQuery(''); };
+
+  // Dummy notifications (real-time would come from backend)
+  const notifications = [
+    {id:1, icon:'🏆', title:'Challenge approved', body:'Your "Plant a tree" submission earned 150 XP.', time:'2 min ago', unread:true},
+    {id:2, icon:'📋', title:'Policy acknowledgement due', body:'3 employees have not signed the updated Data Policy.', time:'1 hour ago', unread:true},
+    {id:3, icon:'⚠️', title:'Compliance issue raised', body:'A new issue was filed in the Governance module.', time:'3 hours ago', unread:false},
+    {id:4, icon:'🌿', title:'Carbon ledger updated', body:'12 new transactions added by the admin team.', time:'Yesterday', unread:false},
+  ];
+  const unreadCount = notifications.filter(n => n.unread).length;
+
+  const overview = <><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">LIVE ESG DASHBOARD</span><h1>Welcome, {live?.user?.name || '…'}.</h1><p>All values below are calculated from saved EcoSphere records.</p></div><button className="primary-btn" onClick={()=>setActive('Carbon transactions')}><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{shownKpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard count={counts.carbon_transactions} onOpen={()=>setActive('Carbon transactions')}/><PeopleCard counts={counts} onOpen={()=>setActive('CSR activities')}/></section><section className="bento lower-bento"><RankingCard ranking={live?.ranking || []}/><section className="panel next-card"><span className="eyebrow orange-text">GOVERNANCE</span><h3>{counts.open_issues} open compliance issue{counts.open_issues === 1 ? '' : 's'}</h3><p>This is the current count from your saved compliance records.</p><div><span className="date-chip"><ClipboardCheck size={17}/></span><button className="round-action" onClick={()=>setActive('Compliance issues')}><ArrowUpRight size={18}/></button></div></section></section></>;
+
+  const sideW = collapsed ? 64 : 252;
+  return (
+    <div className="app-shell">
+      <Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu} collapsed={collapsed} setCollapsed={setCollapsed} user={live?.user}/>
+      <main className="workspace-main" style={{marginLeft:sideW,width:`calc(100% - ${sideW}px)`}}>
+        <motion.div className="dashboard-glow" style={{y:glowY}}/>
+        <header className="topbar">
+          <button className="mobile-menu" onClick={()=>setMenu(true)}><Menu size={21}/></button>
+          <div className="crumb"><span>EcoSphere</span><ChevronRight size={14}/><strong>{active}</strong></div>
+          <div className="top-actions">
+            {/* Search */}
+            <button className="search" onClick={()=>{setShowSearch(true);setShowNotifs(false);setShowProfile(false);}}>
+              <Search size={17}/><span>Search workspace</span><kbd>⌘ K</kbd>
+            </button>
+
+            {/* Notifications */}
+            <div className="topbar-dropdown-wrap">
+              <button className="icon-btn notification" onClick={()=>{setShowNotifs(v=>!v);setShowProfile(false);}}>
+                <Bell size={19}/>
+                {unreadCount > 0 && <i>{unreadCount}</i>}
+              </button>
+              <AnimatePresence>
+                {showNotifs && (
+                  <motion.div
+                    className="topbar-dropdown notif-dropdown"
+                    initial={{opacity:0,y:-8,scale:.97}}
+                    animate={{opacity:1,y:0,scale:1}}
+                    exit={{opacity:0,y:-8,scale:.97}}
+                    transition={{type:'spring',bounce:0,duration:0.28}}
+                  >
+                    <div className="td-header">
+                      <strong>Notifications</strong>
+                      {unreadCount > 0 && <span className="td-badge">{unreadCount} new</span>}
+                    </div>
+                    <div className="td-list">
+                      {notifications.map(n => (
+                        <div key={n.id} className={`td-notif-row ${n.unread ? 'unread' : ''}`}>
+                          <span className="td-notif-icon">{n.icon}</span>
+                          <div className="td-notif-body">
+                            <strong>{n.title}</strong>
+                            <span>{n.body}</span>
+                            <small>{n.time}</small>
+                          </div>
+                          {n.unread && <div className="td-unread-dot"/>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="td-footer">
+                      <button onClick={()=>{notify('All notifications marked as read.');setShowNotifs(false);}}>Mark all as read</button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Avatar / Profile */}
+            <div className="topbar-dropdown-wrap">
+              <button className="top-avatar" onClick={()=>{setShowProfile(v=>!v);setShowNotifs(false);}}>
+                {live?.user?.initials || '—'}
+              </button>
+              <AnimatePresence>
+                {showProfile && (
+                  <motion.div
+                    className="topbar-dropdown profile-dropdown"
+                    initial={{opacity:0,y:-8,scale:.97}}
+                    animate={{opacity:1,y:0,scale:1}}
+                    exit={{opacity:0,y:-8,scale:.97}}
+                    transition={{type:'spring',bounce:0,duration:0.28}}
+                  >
+                    <div className="td-profile-head">
+                      <div className="td-avatar-lg">{live?.user?.initials || '—'}</div>
+                      <div>
+                        <strong>{live?.user?.name || 'EcoSphere user'}</strong>
+                        <span>{live?.user?.email || ''}</span>
+                        <span className="td-role-pill">{live?.user?.role || 'Member'}</span>
+                      </div>
+                    </div>
+                    <div className="td-divider"/>
+                    <div className="td-menu">
+                      <button onClick={()=>{setActive('Overview');setShowProfile(false);}}>
+                        <Gauge size={15}/> Dashboard
+                      </button>
+                      <button onClick={()=>{setActive('Settings');setShowProfile(false);}}>
+                        <Settings size={15}/> Settings
+                      </button>
+                      {live?.user?.role === 'ESG Manager' && (
+                        <button onClick={()=>{setActive('Team access');setShowProfile(false);}}>
+                          <Users size={15}/> Team access
+                        </button>
+                      )}
+                    </div>
+                    <div className="td-divider"/>
+                    <div className="td-menu">
+                      <button className="td-signout" onClick={()=>{setShowProfile(false);onLogout();}}>
+                        <LogOut size={15}/> Sign out
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button className="logout" onClick={onLogout} title="Sign out"><LogOut size={17}/></button>
+          </div>
+        </header>
+
+        {/* Global search modal */}
+        <AnimatePresence>
+          {showSearch && (
+            <motion.div
+              className="search-scrim"
+              initial={{opacity:0}}
+              animate={{opacity:1}}
+              exit={{opacity:0}}
+              transition={{duration:0.18}}
+              onClick={e=>{ if(e.target===e.currentTarget){setShowSearch(false);setSearchQuery('');} }}
+            >
+              <motion.div
+                className="search-modal"
+                initial={{opacity:0,y:-20,scale:.97}}
+                animate={{opacity:1,y:0,scale:1}}
+                exit={{opacity:0,y:-20,scale:.97}}
+                transition={{type:'spring',bounce:0,duration:0.32}}
+              >
+                <div className="search-input-row">
+                  <Search size={18} className="search-icon"/>
+                  <input
+                    ref={searchRef}
+                    className="search-input"
+                    placeholder="Search workspace…"
+                    value={searchQuery}
+                    onChange={e=>setSearchQuery(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==='Enter' && filteredSearch.length) navigateTo(filteredSearch[0].section); }}
+                  />
+                  <kbd className="search-esc" onClick={()=>{setShowSearch(false);setSearchQuery('');}}>Esc</kbd>
+                </div>
+                <div className="search-results">
+                  {filteredSearch.length ? filteredSearch.map((d,i) => (
+                    <button key={d.label} className="search-result-row" onClick={()=>navigateTo(d.section)}>
+                      <span className="sr-icon">{d.icon}</span>
+                      <span className="sr-label">{d.label}</span>
+                      <span className="sr-hint">Go to workspace</span>
+                    </button>
+                  )) : (
+                    <div className="search-empty">No workspace matches "{searchQuery}"</div>
+                  )}
+                </div>
+                <div className="search-footer">
+                  <span>↑↓ navigate</span><span>↵ open</span><span>Esc close</span>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="content">
+          {active === 'Overview' ? overview
+            : active === 'Reports' ? <ReportsWorkspace onNotify={notify}/>
+            : active === 'Team access' ? <TeamAccess onNotify={notify}/>
+            : active === 'Settings' ? <SettingsWorkspace onNotify={notify}/>
+            : ['Environmental','Social','Governance'].includes(active) ? <PillarWorkspace pillar={active} onNavigate={setActive}/>
+            : ['Gamification','Challenges','Participation','Badges & rewards','Leaderboard'].includes(active) ? <PlayableGamificationWorkspace onNotify={notify} active={active}/>
+            : <ModuleWorkspace label={active} onNotify={notify}/>}
+        </div>
+        {notice && <motion.div className="toast" initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:1,y:0}}>{notice}</motion.div>}
+      </main>
+    </div>
+  );
 }
+
+
 
 function ChallengePlayer({ challenge, onClose, onComplete }) {
  const [answers,setAnswers]=useState({}); const [items,setItems]=useState([]); const [file,setFile]=useState(null); const [error,setError]=useState(''); const [saving,setSaving]=useState(false); const config=challenge.game_config||{};
@@ -303,4 +565,60 @@ function ChallengeAdminSetupPanel(){const [challenge,setChallenge]=useState(null
 
 function ChallengeRosterPanel(){const [challenge,setChallenge]=useState(null);useEffect(()=>{const open=event=>setChallenge(event.detail);const close=event=>{if(event.target.closest('.challenge-detail button'))setChallenge(null);};window.addEventListener('ecosphere:challenge-details',open);document.addEventListener('click',close);return()=>{window.removeEventListener('ecosphere:challenge-details',open);document.removeEventListener('click',close);};},[]);if(!challenge||!Array.isArray(challenge.participant_details))return null;const rows=challenge.participant_details;return <aside className="challenge-roster"><div><span className="eyebrow orange-text">ADMIN PARTICIPATION</span><h3>{rows.length} employee{rows.length===1?'':'s'} tried this</h3></div>{rows.length?rows.map((row,index)=><article key={`${row.employee}-${index}`}><div><strong>{row.employee}</strong><span>{row.state.replace('_',' ')} · {row.progress}% progress</span>{row.reason&&<small>{row.reason}</small>}</div><b>{row.xp} XP</b><em className={row.eligibility}>{row.eligibility.replace('_',' ')}</em></article>):<p>No employee has joined this published challenge yet.</p>}</aside>}
 
-export default function App(){ const [signedIn,setSignedIn]=useState(false); return <AnimatePresence mode="wait">{signedIn ? <motion.div key="app" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}><Dashboard onLogout={()=>setSignedIn(false)}/><GamificationAdminQuickActions/><ChallengeDetailOverlay/><ChallengeAdminSetupPanel/><ChallengeRosterPanel/></motion.div> : <motion.div key="login" exit={{opacity:0,scale:.985}}><Login onLogin={()=>setSignedIn(true)}/></motion.div>}</AnimatePresence> }
+export default function App() {
+  const viewForPath = () => {
+    if (window.location.pathname === '/dashboard') return 'app';
+    if (window.location.pathname === '/signin' || window.location.pathname === '/signup') return 'login';
+    return 'landing';
+  };
+  const [view, setView] = useState(viewForPath);
+  const navigate = (path) => {
+    window.history.pushState({}, '', path);
+    setView(viewForPath());
+  };
+  useEffect(() => {
+    const handleNavigation = () => setView(viewForPath());
+    window.addEventListener('popstate', handleNavigation);
+    return () => window.removeEventListener('popstate', handleNavigation);
+  }, []);
+  return (
+    <AnimatePresence mode="wait">
+      {view === 'landing' && (
+        <motion.div
+          key="landing"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 0.985 }}
+          transition={{ duration: 0.35 }}
+        >
+          <LandingPage onStart={() => navigate('/signin')} />
+        </motion.div>
+      )}
+      {view === 'login' && (
+        <motion.div
+          key="login"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.985 }}
+          transition={{ type: 'spring', bounce: 0, duration: 0.45 }}
+        >
+          <Login onLogin={() => navigate('/dashboard')} />
+        </motion.div>
+      )}
+      {view === 'app' && (
+        <motion.div
+          key="app"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <Dashboard onLogout={() => navigate('/')} />
+          <GamificationAdminQuickActions />
+          <ChallengeDetailOverlay />
+          <ChallengeAdminSetupPanel />
+          <ChallengeRosterPanel />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
