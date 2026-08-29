@@ -1,37 +1,43 @@
 # Project Requirements Document — EcoSphere
 
 ## Overview
+EcoSphere is an ESG (Environmental, Social, Governance) management platform built as an Odoo module suite. It integrates ESG measurement directly into day-to-day ERP operations — carbon accounting, CSR participation, compliance tracking — instead of leaving ESG reporting as a manual, disconnected process bolted onto operational data. Gamification (XP, badges, challenges, rewards) drives employee participation.
 
-EcoSphere is an ESG (Environmental, Social, Governance) management platform. Its Odoo addon centralizes carbon accounting, CSR participation, governance compliance, gamification, reporting and departmental ESG scoring. A separate React frontend provides an Apple-inspired executive experience and account-entry prototype.
+## Target Users
+- **Sustainability/ESG managers** — configure emission factors, goals, policies; monitor org-wide ESG score and generate reports.
+- **Department heads** — track their department's ESG score and CSR/compliance status.
+- **Employees** — participate in CSR activities and challenges, earn XP/badges, redeem rewards, acknowledge policies.
+- **Auditors/compliance officers** — run audits, raise and track compliance issues.
+- **Executives** — consume dashboards and summary reports for decision-making.
 
-## Target users
+## Core Features (v1 / MVP)
+- **Environmental module**: Emission Factor configuration, Carbon Transaction calculation (manual and auto from Purchase/Manufacturing/Expense/Fleet), Department Carbon Tracking, Sustainability Goals, Environmental Dashboard.
+- **Social module**: CSR Activity management, Employee Participation tracking (with proof/approval workflow), Diversity Metrics, Training Completion tracking.
+- **Governance module**: ESG Policy management, Policy Acknowledgements, Audits, Compliance Issues (with mandatory Owner + Due Date and overdue flagging).
+- **Gamification module**: Challenges (full lifecycle Draft → Active → Under Review → Completed/Archived), XP tracking, Badges (auto-award on Unlock Rule match), Rewards catalog with redemption (Points deduction, stock check), Leaderboards.
+- **Scoring engine**: Department-level Environmental/Social/Governance/Total scores rolling up to an org-wide weighted Overall ESG Score (default 40/30/30, configurable).
+- **Settings & Administration**: Department management, Category management, ESG Configuration (weights, toggles), Notification Settings.
+- **Notifications**: In-app and/or email for compliance issue raised, CSR/Challenge approval decisions, policy acknowledgement reminders, badge unlocks.
+- **Reports**: Environmental, Social, Governance, ESG Summary, and a Custom Report Builder (filter by Department/Date Range/Module/Employee/Challenge/ESG Category; export PDF/Excel/CSV).
 
-- **ESG managers:** configure factors, goals, policies, weights and reports.
-- **Department heads:** monitor department progress and resolve compliance issues.
-- **Employees:** join CSR activities and challenges, submit proof, earn XP and redeem rewards.
-- **Auditors and compliance officers:** run audits and own compliance remediation.
-- **Executives:** consume organization scores, trends and reports.
+## Future Scope (not in v1)
+- Department ESG rankings (cross-department leaderboard beyond individual leaderboards)
+- Advanced smart dashboard visualizations (beyond standard Odoo dashboard views)
+- Mobile-responsive/dedicated mobile interface
+- Multi-organization / multi-company benchmarking
 
-## Current MVP scope
+## Success Criteria
+- An admin can configure Departments, Categories, and Emission Factors from Settings.
+- A Carbon Transaction can be created manually or auto-generated from a linked Purchase/Manufacturing/Expense/Fleet record when the toggle is enabled, and correctly applies the relevant Emission Factor.
+- An employee can join a Challenge, submit progress with proof, get approved, and receive XP — and a Badge auto-awards when their Unlock Rule is met (when the toggle is enabled).
+- An employee can redeem a Reward, with Points deducted and stock decremented, blocked if stock is insufficient.
+- A Compliance Issue with a Due Date that lapses while still Open is flagged and triggers a notification.
+- Department Environmental/Social/Governance scores calculate correctly and roll up into a weighted Overall ESG Score, configurable per organization.
+- All four standard reports generate correctly, and the Custom Report Builder can filter across all six listed dimensions and export to PDF/Excel/CSV.
+- Notifications fire for all four required event types and are configurable via Settings.
 
-- Environmental: emission factors, product ESG profiles, carbon transactions and environmental goals.
-- Social: CSR activities and evidence/approval-based employee participation.
-- Governance: policies, acknowledgements, audits and owned, due-dated compliance issues.
-- Gamification: challenges, participation, XP, badges, rewards and redemption.
-- Score configuration: E/S/G weighted department scores with validated 40/30/30 default weights.
-- Reporting: QWeb Environmental, Social, Governance and ESG Summary reports plus a report-builder wizard.
-- React experience: sign in/create-account prototype, dashboard, sidebar and responsive mobile layout.
-
-## Non-functional requirements
-
-- Business rules must be enforced in Odoo models, not only in the UI.
-- All records require appropriate Odoo access control entries.
-- Frontend must respect reduced-motion preferences and work at mobile widths.
-- The UI-only React account flow must not be presented as persistent authentication until it is connected to Odoo.
-
-## Explicitly deferred
-
-- Production React-to-Odoo authentication/API integration.
-- Operational hooks for Purchase, Manufacturing, Expenses and Fleet auto-emission calculation.
-- Production notification delivery and cron jobs.
-- Excel/CSV export implementation beyond Odoo's native export surface.
+## Out of Scope
+- Payroll, procurement, or manufacturing logic itself (EcoSphere reads/links to these records, it doesn't reimplement them).
+- Third-party carbon-offset marketplace integration.
+- External auditor portals (audits are managed internally by the org's own users).
+- Real-time IoT sensor ingestion for emissions (data enters via linked ERP transactions, not live sensors).

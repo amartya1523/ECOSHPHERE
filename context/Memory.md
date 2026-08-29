@@ -1,25 +1,25 @@
 # Memory Log — EcoSphere
 
-> Read this file first at the start of a new implementation session. Append a dated entry after meaningful work; do not rewrite history.
+> **Instructions for the AI coding assistant working on this project:**
+>
+> This file is your persistent memory across chat sessions. The codebase and other planning docs (PRD, Architecture, Rules, Phases, Design) don't change often, but you need a fast way to know *where things stand* without re-reading the whole project every time.
+>
+> **Update this file whenever you:**
+> - Complete a phase or a meaningful chunk of work
+> - Make a decision that deviates from the original docs (and why)
+> - Hit a blocker or leave something half-finished
+> - Learn something about the codebase that isn't obvious from the code itself
+>
+> **Format for each entry:** append, don't rewrite history. Use:
+> ```
+> ## {Date or Session Label}
+> - Status: {what's done}
+> - Next: {what to do next}
+> - Notes: {gotchas, decisions, deviations from the plan}
+> ```
+>
+> At the start of a new chat session, read this file first (before re-reading the whole codebase) to get oriented. Only dig into the actual code when this file doesn't answer your question.
 
 ---
 
-## 2026-08-29 — Initial implementation
-- Status: Created the native `backend/eco_sphere_esg` Odoo addon with models, XML views, security, seed data, reports and a report-builder wizard. Python compilation and XML parsing passed.
-- Next: Install the addon on the selected Odoo version and add automated Odoo tests.
-- Notes: Auto-emission source hooks and production notifications still need target-module dependencies and explicit implementation.
-
-## 2026-08-29 — Standalone frontend
-- Status: Added `frontend/` with Vite, React and Framer Motion. It contains Apple-inspired login/sign-up views, a responsive executive dashboard and reduced-motion support. `npm run build` passes.
-- Next: Connect authentication and dashboard data to Odoo through secure HTTP/JSON-RPC endpoints.
-- Notes: Create Account is a UI prototype only; it does not persist Odoo users yet.
-
-## 2026-08-29 — Context system added
-- Status: Added the project-local `context/` documentation suite (PRD, Architecture, Rules, Phases, Design and this Memory log).
-- Next: Keep these documents aligned with actual code decisions, particularly Odoo install status and API integration.
-- Notes: The previous `memory.md` in Downloads remains a historical external reference; `context/Memory.md` is the repository source of truth from now on.
-
-## 2026-08-29 — Local backend runtime setup
-- Status: Added `backend/docker-compose.yml`, `.env.example` and `backend/README.md` for Odoo 17 + PostgreSQL 16 local startup.
-- Next: Install/open Docker Desktop, create `backend/.env` from the example, start the containers, create `ecosphere_db`, and install the addon.
-- Notes: Docker CLI is not currently installed in this workspace, so Compose could not be executed or validated against a local Docker daemon.
+<!-- New entries go below this line -->
