@@ -10,6 +10,10 @@ class ESGDepartment(models.Model):
 
     name = fields.Char(required=True, index=True)
     code = fields.Char(required=True, index=True)
+    company_id = fields.Many2one(
+        "res.company", required=True, default=lambda self: self.env.company,
+        index=True, ondelete="cascade", string="Workspace"
+    )
     manager_id = fields.Many2one("hr.employee", string="ESG Head")
     parent_id = fields.Many2one("esg.department", string="Parent Department", ondelete="restrict")
     child_ids = fields.One2many("esg.department", "parent_id", string="Sub-departments")

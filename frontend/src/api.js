@@ -147,6 +147,11 @@ export const remindPolicyAcknowledgements = filters => rpc('/ecosphere/api/polic
 export const exportPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/export', filters || {});
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
+export const getSettings = () => rpc('/ecosphere/api/settings');
+export const saveProfileSettings = values => rpc('/ecosphere/api/settings/profile', values);
+export const saveWorkspaceSettings = (name, configuration) => rpc('/ecosphere/api/settings/workspace', {name, configuration});
+export const saveDepartment = values => rpc('/ecosphere/api/settings/departments/save', values);
+export const archiveDepartment = id => rpc(`/ecosphere/api/settings/departments/${id}/archive`);
 export const getGamification = () => rpc('/ecosphere/api/gamification');
 export const createChallenge = (values) => rpc('/ecosphere/api/gamification/challenges/create', values);
 export const joinChallenge = (id) => rpc(`/ecosphere/api/gamification/challenges/${id}/join`);

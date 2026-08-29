@@ -377,9 +377,12 @@ class EcoSphereAPI(http.Controller):
     def team_list(self):
         self._require_manager()
         user_group = request.env.ref('eco_sphere_esg.group_esg_user')
-        users = request.env['res.users'].with_context(active_test=False).search([
+        # An enterprise is an Odoo company.  Never expose users from another
+        # company, even when they have the same EcoSphere security group.
+        users = request.env['res.users'].sudo().with_context(active_test=False).search([
             ('id', '!=', request.env.ref('base.user_root').id),
             ('groups_id', 'in', user_group.id),
+            ('company_id', '=', request.env.company.id),
         ], order='active desc, name')
         return {'members': [{
             'id': user.id, 'name': user.name, 'email': user.login,
@@ -398,8 +401,11 @@ class EcoSphereAPI(http.Controller):
             raise ValidationError(_("An account already exists for this email address."))
         employee_group = request.env.ref('eco_sphere_esg.group_esg_user').sudo()
         internal_group = request.env.ref('base.group_user').sudo()
+        workspace = request.env.company
         user = Users.with_context(no_reset_password=True).create({
             'name': name, 'login': email, 'email': email, 'password': password,
+            'company_id': workspace.id,
+            'company_ids': [(6, 0, [workspace.id])],
             'groups_id': [(6, 0, [internal_group.id, employee_group.id])],
         })
         employee_values = {'name': name, 'user_id': user.id}
@@ -410,6 +416,121 @@ class EcoSphereAPI(http.Controller):
             employee_values['esg_department_id'] = department.id
         request.env['hr.employee'].sudo().create(employee_values)
         return {'id': user.id, 'message': _("Employee account created. Share the login credentials securely.")}
+
+    def _settings_payload(self):
+        """Return only the signed-in person's settings and active workspace data."""
+        user = request.env.user
+        company = request.env.company
+        manager = user.has_group('eco_sphere_esg.group_esg_manager')
+        payload = {
+            'is_manager': manager,
+            'profile': {
+                'name': user.name,
+                'email': user.login,
+                'email_notifications': user.esg_email_notifications,
+                'in_app_notifications': user.esg_in_app_notifications,
+            },
+        }
+        if not manager:
+            return payload
+        departments = request.env['esg.department'].sudo().search([
+            ('company_id', '=', company.id),
+        ], order='active desc, name')
+        payload.update({
+            'workspace': {'id': company.id, 'name': company.name},
+            'configuration': {
+                'environmental_weight': company.esg_environmental_weight,
+                'social_weight': company.esg_social_weight,
+                'governance_weight': company.esg_governance_weight,
+                'auto_emission_calculation': company.esg_auto_emission_calculation,
+                'require_csr_evidence': company.esg_require_csr_evidence,
+                'auto_award_badges': company.esg_auto_award_badges,
+                'compliance_notifications': company.esg_compliance_notifications,
+                'csr_notifications': company.esg_csr_notifications,
+                'challenge_notifications': company.esg_challenge_notifications,
+            },
+            'departments': [{
+                'id': department.id,
+                'name': department.name,
+                'code': department.code,
+                'active': department.active,
+                'employees': department.employee_count,
+            } for department in departments],
+        })
+        return payload
+
+    @http.route('/ecosphere/api/settings', type='json', auth='user', methods=['POST'], csrf=False)
+    def settings(self):
+        return self._settings_payload()
+
+    @http.route('/ecosphere/api/settings/profile', type='json', auth='user', methods=['POST'], csrf=False)
+    def settings_profile(self, name=None, email_notifications=True, in_app_notifications=True):
+        clean_name = (name or '').strip()
+        if len(clean_name) < 2:
+            raise ValidationError(_("Enter a name of at least two characters."))
+        request.env.user.write({
+            'name': clean_name,
+            'esg_email_notifications': bool(email_notifications),
+            'esg_in_app_notifications': bool(in_app_notifications),
+        })
+        return {'message': _("Personal settings saved."), **self._settings_payload()}
+
+    @http.route('/ecosphere/api/settings/workspace', type='json', auth='user', methods=['POST'], csrf=False)
+    def settings_workspace(self, name, configuration=None):
+        self._require_manager()
+        name = (name or '').strip()
+        config = configuration if isinstance(configuration, dict) else {}
+        if len(name) < 2:
+            raise ValidationError(_("Enter a workspace name of at least two characters."))
+        weights = [float(config.get(key, 0)) for key in ('environmental_weight', 'social_weight', 'governance_weight')]
+        if any(weight < 0 or weight > 100 for weight in weights) or round(sum(weights), 2) != 100:
+            raise ValidationError(_("Environmental, social, and governance weights must add up to 100%."))
+        company = request.env.company.sudo()
+        company.write({
+            'name': name,
+            'esg_environmental_weight': weights[0],
+            'esg_social_weight': weights[1],
+            'esg_governance_weight': weights[2],
+            'esg_auto_emission_calculation': bool(config.get('auto_emission_calculation')),
+            'esg_require_csr_evidence': bool(config.get('require_csr_evidence')),
+            'esg_auto_award_badges': bool(config.get('auto_award_badges')),
+            'esg_compliance_notifications': bool(config.get('compliance_notifications')),
+            'esg_csr_notifications': bool(config.get('csr_notifications')),
+            'esg_challenge_notifications': bool(config.get('challenge_notifications')),
+        })
+        return {'message': _("Workspace configuration saved."), **self._settings_payload()}
+
+    @http.route('/ecosphere/api/settings/departments/save', type='json', auth='user', methods=['POST'], csrf=False)
+    def settings_department_save(self, name, code, department_id=None):
+        self._require_manager()
+        name, code = (name or '').strip(), (code or '').strip().upper()
+        if len(name) < 2 or len(code) < 2:
+            raise ValidationError(_("Enter a department name and code of at least two characters."))
+        Department = request.env['esg.department'].sudo()
+        company = request.env.company
+        department = Department.browse(int(department_id)).exists() if department_id else Department.browse()
+        if department and department.company_id != company:
+            raise ValidationError(_("That department belongs to another workspace."))
+        duplicate_domain = [('company_id', '=', company.id), ('code', '=', code)]
+        if department:
+            duplicate_domain.append(('id', '!=', department.id))
+        if Department.search_count(duplicate_domain):
+            raise ValidationError(_("A department with this code already exists in your workspace."))
+        values = {'name': name, 'code': code, 'company_id': company.id}
+        if department:
+            department.write(values)
+        else:
+            department = Department.create(values)
+        return {'id': department.id, 'message': _("Department saved."), **self._settings_payload()}
+
+    @http.route('/ecosphere/api/settings/departments/<int:department_id>/archive', type='json', auth='user', methods=['POST'], csrf=False)
+    def settings_department_archive(self, department_id):
+        self._require_manager()
+        department = request.env['esg.department'].sudo().browse(department_id).exists()
+        if not department or department.company_id != request.env.company:
+            raise ValidationError(_("Department not found in this workspace."))
+        department.write({'active': False})
+        return {'message': _("Department archived."), **self._settings_payload()}
 
     @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
     def signup(self, name, workspace_name, email, password):

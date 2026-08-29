@@ -15,13 +15,18 @@ class ESGDepartmentScore(models.Model):
     total_score = fields.Float(compute="_compute_total", store=True)
     _sql_constraints = [("esg_score_department_date_unique", "unique(department_id, score_date)", "One daily score is allowed per department.")]
 
-    @api.depends("environmental_score", "social_score", "governance_score")
+    @api.depends(
+        "environmental_score", "social_score", "governance_score",
+        "department_id.company_id.esg_environmental_weight",
+        "department_id.company_id.esg_social_weight",
+        "department_id.company_id.esg_governance_weight",
+    )
     def _compute_total(self):
-        params = self.env["ir.config_parameter"].sudo()
-        env_weight = float(params.get_param("eco_sphere_esg.environmental_weight", "40")) / 100
-        social_weight = float(params.get_param("eco_sphere_esg.social_weight", "30")) / 100
-        gov_weight = float(params.get_param("eco_sphere_esg.governance_weight", "30")) / 100
         for score in self:
+            company = score.department_id.company_id or self.env.company
+            env_weight = company.esg_environmental_weight / 100
+            social_weight = company.esg_social_weight / 100
+            gov_weight = company.esg_governance_weight / 100
             score.total_score = (score.environmental_score * env_weight + score.social_score * social_weight + score.governance_score * gov_weight)
 
     @api.model
