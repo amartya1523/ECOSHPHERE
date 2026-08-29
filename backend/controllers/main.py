@@ -237,7 +237,12 @@ class EcoSphereAPI(http.Controller):
             templates = [{'id': row.id, 'name': row.name, 'description': row.description or '', 'xp_value': row.xp_value, 'difficulty': row.difficulty, 'challenge_type': row.challenge_type, 'game_config': row.game_config or {}} for row in Challenge.search([('is_template', '=', True)], order='id')]
             for row in Participation.search([('state', '=', 'under_review')], order='create_date desc', limit=50):
                 reviews.append({'id': row.id, 'employee': row.employee_id.name, 'challenge': row.challenge_id.name, 'proof': row.proof.decode() if row.proof else False, 'proof_filename': row.proof_filename or '', 'reason': row.verification_reason or ''})
-        return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'leaderboard': leaderboard, 'templates': templates, 'reviews': reviews}
+        rewards = [{'id': row.id, 'name': row.name, 'description': row.description or '', 'points_required': row.points_required, 'stock': row.stock, 'active': row.active} for row in request.env['esg.reward'].search([('active', '=', True)])]
+        activity = []
+        if is_manager:
+            for row in Participation.sudo().search([], order='create_date desc', limit=100):
+                activity.append({'employee': row.employee_id.name, 'challenge': row.challenge_id.name, 'state': row.state, 'progress': row.progress, 'xp': row.xp_awarded, 'eligibility': row.eligibility_status})
+        return {'is_manager': is_manager, 'can_join': bool(employee), 'challenges': challenge_rows, 'badges': badge_rows, 'rewards': rewards, 'leaderboard': leaderboard, 'activity': activity, 'templates': templates, 'reviews': reviews}
 
     @http.route('/ecosphere/api/gamification/challenges/create', type='json', auth='user', methods=['POST'], csrf=False)
     def gamification_create_challenge(self, name, description, xp_value, difficulty, deadline, state='active'):
