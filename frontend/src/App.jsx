@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { acknowledgePolicy, archiveSocialActivity, createChallenge, createResource, createSocialActivity, createTeamMember, deleteResource, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, reviewChallenge, reviewSocialParticipation, runPolicyAction, signIn, signUp, submitSocialParticipation, updateResource, updateSocialActivity } from './api';
+import { acknowledgePolicy, archiveSocialActivity, createChallenge, createResource, createSocialActivity, createTeamMember, deleteResource, exportPolicyAcknowledgements, getDashboard, getGamification, getPolicyWorkspace, getRelationOptions, getResource, getSocial, getTeam, joinChallenge, joinSocialActivity, playChallenge, publishChallengeTemplate, remindPolicyAcknowledgements, reviewChallenge, reviewSocialParticipation, runPolicyAction, signIn, signUp, submitSocialParticipation, updateResource, updateSocialActivity } from './api';
 import { AnimatePresence, motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import {
   ArrowUpRight, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
@@ -167,16 +167,109 @@ function PolicyDetail({ policy, isManager, onClose, onAction, onAcknowledge, onD
 }
 
 function PolicyWorkspace({ active, onNotify }) {
- const [data,setData]=useState(null),[query,setQuery]=useState(''),[status,setStatus]=useState('all'),[ack,setAck]=useState(active==='Policy acknowledgements'?'pending':'all'),[modal,setModal]=useState(null),[detail,setDetail]=useState(null),[ackFocus,setAckFocus]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const load=async()=>{setBusy(true);try{setData(await getPolicyWorkspace({query,status,acknowledgement:ack}));setError('');}catch(err){setError(err.message);}finally{setBusy(false);}};
- useEffect(()=>{load();},[active,status,ack]);
+ const [data,setData]=useState(null);
+ const [query,setQuery]=useState('');
+ const [status,setStatus]=useState('all');
+ const [ack,setAck]=useState(active==='Policy acknowledgements'?'pending':'all');
+ const [policyFilter,setPolicyFilter]=useState('');
+ const [departmentFilter,setDepartmentFilter]=useState('');
+ const [selectedAcks,setSelectedAcks]=useState([]);
+ const [modal,setModal]=useState(null);
+ const [detail,setDetail]=useState(null);
+ const [ackFocus,setAckFocus]=useState(null);
+ const [busy,setBusy]=useState(false);
+ const [error,setError]=useState('');
+ const showAcknowledgements=active==='Policy acknowledgements';
+ const load=async()=>{
+  setBusy(true);
+  try{
+   setData(await getPolicyWorkspace({query,status,acknowledgement:ack,policy_id:policyFilter||undefined,department_id:departmentFilter||undefined}));
+   setError('');
+  }catch(err){
+   setError(err.message);
+  }finally{
+   setBusy(false);
+  }
+ };
+ useEffect(()=>{load();},[active,status,ack,policyFilter,departmentFilter]);
+ useEffect(()=>{setSelectedAcks([]);setAckFocus(null);},[active,status,ack,policyFilter,departmentFilter]);
  const saved=async message=>{setModal(null);await load();onNotify(message);};
  const action=async(policy,name)=>{setBusy(true);try{const result=await runPolicyAction(policy.id,name);setDetail(null);await load();onNotify(result.message);}catch(err){setError(err.message);}finally{setBusy(false);}};
  const acknowledge=async id=>{if(!id)return;setBusy(true);try{const result=await acknowledgePolicy(id);setDetail(null);await load();onNotify(result.message);}catch(err){setError(err.message);}finally{setBusy(false);}};
- const rows=data?.policies||[],isManager=Boolean(data?.is_manager),metrics=data?.metrics||{},showAcknowledgements=active==='Policy acknowledgements';
+ const remind=async ids=>{
+  setBusy(true);
+  try{
+   const result=await remindPolicyAcknowledgements({
+    acknowledgement_ids:ids?.length?ids:undefined,
+    policy_id:ids?.length?undefined:(policyFilter||ackFocus?.id||undefined),
+    department_id:ids?.length?undefined:(departmentFilter||undefined)
+   });
+   setSelectedAcks([]);
+   await load();
+   onNotify(result.message);
+  }catch(err){
+   setError(err.message);
+  }finally{
+   setBusy(false);
+  }
+ };
+ const exportRows=async()=>{
+  setBusy(true);
+  try{
+   const localCsv=ack==='overdue'?`Policy,Version,Employee,Department,Status,Acknowledged On\r\n${filteredAckRows.map(row=>[row.policy,row.version,row.employee,row.department||'',row.state,row.acknowledged_on||''].map(value=>`"${String(value).replace(/"/g,'""')}"`).join(',')).join('\r\n')}\r\n`:null;
+   const result=localCsv?{filename:'policy-acknowledgements-needs-reminder.csv',csv:localCsv}:await exportPolicyAcknowledgements({policy_id:policyFilter||ackFocus?.id||undefined,department_id:departmentFilter||undefined,state:ack==='acknowledged'?'acknowledged':ack==='pending'?'pending':'all'});
+   const url=URL.createObjectURL(new Blob([result.csv],{type:'text/csv;charset=utf-8'}));
+   const link=document.createElement('a');
+   link.href=url;
+   link.download=result.filename||'policy-acknowledgements.csv';
+   link.click();
+   URL.revokeObjectURL(url);
+   onNotify('Acknowledgement export prepared.');
+  }catch(err){
+   setError(err.message);
+  }finally{
+   setBusy(false);
+  }
+ };
+ const rows=data?.policies||[],isManager=Boolean(data?.is_manager),metrics=data?.metrics||{};
  const ackRows=rows.flatMap(policy=>(policy.acknowledgements||[]).map(row=>({...row,policy:policy.name,version:policy.version,policy_id:policy.id})));
- const filteredAckRows=ackFocus?ackRows.filter(row=>row.policy_id===ackFocus.id&&row.state==='pending'):ackRows;
- return <section className="module-workspace module-governance"><div className="module-header"><div><span className="eyebrow">GOVERNANCE WORKSPACE</span><h1>{showAcknowledgements?(isManager?'Policy acknowledgements':'My acknowledgements'):(isManager?'Policies':'My policies')}</h1><p>{isManager?'Maintain policies, assignment scope, acknowledgement progress, reminders, and lifecycle status.':'Read assigned policies and complete only your own acknowledgements.'}</p></div>{isManager&&!showAcknowledgements&&<button className="primary-btn" onClick={()=>setModal({})}><Plus size={18}/> New Policy</button>}</div><section className="module-stat-strip"><article><span>{isManager?'Active policies':'Assigned policies'}</span><strong>{isManager?metrics.active:metrics.total}</strong></article><article><span>Pending acknowledgements</span><strong>{metrics.pending||0}</strong></article><article><span>Acknowledgement rate</span><strong>{metrics.acknowledgement_rate||0}%</strong></article></section><div className="table-toolbar"><label className="table-search"><Search size={16}/><input value={query} placeholder="Search policies" onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==='Enter'&&load()}/></label><button className="soft-btn" onClick={load}>{busy?'Refreshing…':'Refresh'}</button></div><div className="game-tabs">{['all','draft','published','active','archived'].filter(value=>isManager||!['draft','archived'].includes(value)).map(value=><button key={value} className={status===value?'selected':''} onClick={()=>setStatus(value)}>{value==='all'?'All statuses':value}</button>)}</div><div className="game-tabs">{(isManager?['all','required','optional','pending']:['all','pending','acknowledged']).map(value=><button key={value} className={ack===value?'selected':''} onClick={()=>{setAck(value);setAckFocus(null);}}>{value==='all'?'All acknowledgements':value}</button>)}</div>{error&&<p className="form-error">{error}</p>}{showAcknowledgements&&isManager?<section className="data-surface"><div className="data-table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Policy</th><th>Version</th><th>Status</th><th>Date</th><th/></tr></thead><tbody>{filteredAckRows.map(row=><tr key={row.id}><td>{row.employee}</td><td>{row.department||'—'}</td><td>{row.policy}</td><td>{row.version}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.acknowledged_on||'—'}</td><td className="row-actions"><button onClick={()=>setDetail(rows.find(policy=>policy.id===row.policy_id))}>View policy</button></td></tr>)}{!filteredAckRows.length&&<tr><td colSpan="7"><div className="empty-state"><ClipboardCheck size={23}/><strong>No acknowledgement records.</strong><span>Records appear when an administrator publishes an acknowledgement-required policy.</span></div></td></tr>}</tbody></table></div></section>:<section className="data-surface"><div className="data-table-wrap"><table><thead>{isManager?<tr><th>Title</th><th>Category</th><th>Version</th><th>Effective Date</th><th>Acknowledgement</th><th>Progress</th><th>Status</th><th>Assignment</th><th/></tr>:<tr><th>Policy</th><th>Version</th><th>Effective Date</th><th>Status</th><th>My acknowledgement</th><th/></tr>}</thead><tbody>{rows.map(row=><tr key={row.id}>{isManager?<><td>{row.name}</td><td>{row.category||'—'}</td><td>{row.version}</td><td>{row.effective_date||'—'}</td><td>{row.acknowledgement_required?'Required':'Optional'}</td><td><button className="text-button" onClick={()=>setAckFocus(row)}>{row.acknowledgement_progress}% · {row.pending_count} pending</button></td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.assignment_summary}</td><td className="row-actions"><button onClick={()=>setDetail(row)}>View</button><button disabled={row.state==='archived'} onClick={()=>setModal(row)}>Edit</button><button disabled={row.state!=='draft'} onClick={()=>action(row,'publish')}>Publish</button><button disabled={!['draft','published','effective'].includes(row.state)} onClick={()=>action(row,'activate')}>Activate</button><button disabled={row.state==='archived'} onClick={()=>action(row,'remind')}>Remind</button><button disabled={row.state==='archived'} onClick={()=>action(row,'archive')}>Archive</button></td></>:<><td>{row.name}</td><td>{row.version}</td><td>{row.effective_date||'—'}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.my_acknowledgement?.state==='acknowledged'?`Acknowledged ${row.my_acknowledgement.acknowledged_on||''}`:row.my_acknowledgement?.state||'not required'}</td><td className="row-actions"><button onClick={()=>setDetail(row)}>{row.my_acknowledgement?.state==='pending'?'Read & Acknowledge':'View'}</button></td></>}</tr>)}{!rows.length&&<tr><td colSpan={isManager?9:6}><div className="empty-state"><ClipboardCheck size={23}/><strong>{isManager?'No policies created yet.':'No policies require your acknowledgement.'}</strong><span>{isManager?'Create the first policy when your governance content is ready.':'Assigned policies will appear here when an administrator publishes them.'}</span></div></td></tr>}</tbody></table></div></section>}{ackFocus&&!showAcknowledgements&&isManager&&<section className="data-surface review-panel"><div className="panel-title"><div><span className="eyebrow violet-text">PENDING ACKNOWLEDGEMENTS</span><h3>{ackFocus.name}</h3></div><button className="soft-btn" onClick={()=>setAckFocus(null)}>Clear</button></div><div className="data-table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>Date</th></tr></thead><tbody>{(ackFocus.acknowledgements||[]).filter(row=>row.state==='pending').map(row=><tr key={row.id}><td>{row.employee}</td><td>{row.department||'—'}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.acknowledged_on||'—'}</td></tr>)}{!(ackFocus.acknowledgements||[]).some(row=>row.state==='pending')&&<tr><td colSpan="4">No pending acknowledgements for this policy.</td></tr>}</tbody></table></div></section>}{modal&&<PolicyForm policy={modal.id?modal:null} data={data} onClose={()=>setModal(null)} onSaved={saved}/>} {detail&&<PolicyDetail policy={detail} isManager={isManager} onClose={()=>setDetail(null)} onAction={action} onAcknowledge={acknowledge} onDrilldown={policy=>setAckFocus(policy)}/>}</section>;
+ const filteredAckRows=(ackFocus?ackRows.filter(row=>row.policy_id===ackFocus.id):ackRows).filter(row=>ack==='overdue'?row.needs_reminder:true);
+ const pendingAckRows=filteredAckRows.filter(row=>row.state==='pending');
+ const allPendingSelected=pendingAckRows.length>0&&pendingAckRows.every(row=>selectedAcks.includes(row.id));
+ const toggleAck=id=>setSelectedAcks(current=>current.includes(id)?current.filter(rowId=>rowId!==id):[...current,id]);
+ const toggleAll=()=>setSelectedAcks(allPendingSelected?[]:pendingAckRows.map(row=>row.id));
+ return <section className="module-workspace module-governance">
+  <div className="module-header">
+   <div>
+    <span className="eyebrow">GOVERNANCE WORKSPACE</span>
+    <h1>{showAcknowledgements?(isManager?'Policy acknowledgements':'My acknowledgements'):(isManager?'Policies':'My policies')}</h1>
+    <p>{isManager?'Maintain policies, assignment scope, acknowledgement progress, reminders, and lifecycle status.':'Read assigned policies and complete only your own acknowledgements.'}</p>
+   </div>
+   {isManager&&!showAcknowledgements&&<button className="primary-btn" onClick={()=>setModal({})}><Plus size={18}/> New Policy</button>}
+  </div>
+  <section className="module-stat-strip">
+   <article><span>{isManager?'Active policies':'Assigned policies'}</span><strong>{isManager?metrics.active:metrics.total}</strong></article>
+   <article><span>Pending acknowledgements</span><strong>{metrics.pending||0}</strong></article>
+   <article><span>{isManager?'Need reminders':'Acknowledgement rate'}</span><strong>{isManager?metrics.needs_reminder||0:`${metrics.acknowledgement_rate||0}%`}</strong></article>
+  </section>
+  <div className="table-toolbar">
+   <label className="table-search"><Search size={16}/><input value={query} placeholder="Search policies" onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==='Enter'&&load()}/></label>
+   {isManager&&showAcknowledgements&&<select value={policyFilter} onChange={event=>setPolicyFilter(event.target.value)}><option value="">All policies</option>{(data?.policy_options||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>}
+   {isManager&&showAcknowledgements&&<select value={departmentFilter} onChange={event=>setDepartmentFilter(event.target.value)}><option value="">All departments</option>{(data?.departments||[]).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>}
+   <button className="soft-btn" onClick={load}>{busy?'Refreshing...':'Refresh'}</button>
+  </div>
+  <div className="game-tabs">{['all','draft','published','active','archived'].filter(value=>isManager||!['draft','archived'].includes(value)).map(value=><button key={value} className={status===value?'selected':''} onClick={()=>setStatus(value)}>{value==='all'?'All statuses':value}</button>)}</div>
+  <div className="game-tabs">{(isManager?['all','required','optional','pending','overdue']:['all','pending','acknowledged','overdue']).map(value=><button key={value} className={ack===value?'selected':''} onClick={()=>setAck(value)}>{value==='all'?'All acknowledgements':value==='overdue'?'Needs reminder':value}</button>)}</div>
+  {isManager&&showAcknowledgements&&<div className="row-actions">
+   <button disabled={!pendingAckRows.length||busy} onClick={()=>remind(selectedAcks.length?selectedAcks:ack==='overdue'?pendingAckRows.map(row=>row.id):[])}>{selectedAcks.length?`Remind selected (${selectedAcks.length})`:'Remind filtered pending'}</button>
+   <button disabled={!filteredAckRows.length||busy} onClick={exportRows}>Export CSV</button>
+  </div>}
+  {error&&<p className="form-error">{error}</p>}
+  {showAcknowledgements&&isManager?<section className="data-surface"><div className="data-table-wrap"><table><thead><tr><th><input type="checkbox" checked={allPendingSelected} disabled={!pendingAckRows.length} onChange={toggleAll}/></th><th>Employee</th><th>Department</th><th>Policy</th><th>Version</th><th>Status</th><th>Date</th><th>Reminder</th><th/></tr></thead><tbody>{filteredAckRows.map(row=><tr key={row.id}><td><input type="checkbox" checked={selectedAcks.includes(row.id)} disabled={row.state!=='pending'} onChange={()=>toggleAck(row.id)}/></td><td>{row.employee}</td><td>{row.department||'--'}</td><td>{row.policy}</td><td>{row.version}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.acknowledged_on||'--'}</td><td>{row.needs_reminder?'Needs reminder':'--'}</td><td className="row-actions"><button onClick={()=>setDetail(rows.find(policy=>policy.id===row.policy_id))}>View policy</button></td></tr>)}{!filteredAckRows.length&&<tr><td colSpan="9"><div className="empty-state"><ClipboardCheck size={23}/><strong>No acknowledgement records.</strong><span>Records appear when an administrator publishes an acknowledgement-required policy.</span></div></td></tr>}</tbody></table></div></section>:<section className="data-surface"><div className="data-table-wrap"><table><thead>{isManager?<tr><th>Title</th><th>Category</th><th>Version</th><th>Effective Date</th><th>Acknowledgement</th><th>Progress</th><th>Status</th><th>Assignment</th><th/></tr>:<tr><th>Policy</th><th>Version</th><th>Effective Date</th><th>Status</th><th>My acknowledgement</th><th/></tr>}</thead><tbody>{rows.map(row=><tr key={row.id}>{isManager?<><td>{row.name}</td><td>{row.category||'--'}</td><td>{row.version}</td><td>{row.effective_date||'--'}</td><td>{row.acknowledgement_required?'Required':'Optional'}</td><td><button className="text-button" onClick={()=>setAckFocus(row)}>{row.acknowledgement_progress}% · {row.pending_count} pending</button></td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.assignment_summary}</td><td className="row-actions"><button onClick={()=>setDetail(row)}>View</button><button disabled={row.state==='archived'} onClick={()=>setModal(row)}>Edit</button><button disabled={row.state!=='draft'} onClick={()=>action(row,'publish')}>Publish</button><button disabled={!['draft','published','active'].includes(row.state)} onClick={()=>action(row,'activate')}>Activate</button><button disabled={row.state==='archived'} onClick={()=>action(row,'remind')}>Remind</button><button disabled={row.state==='archived'} onClick={()=>action(row,'archive')}>Archive</button></td></>:<><td>{row.name}</td><td>{row.version}</td><td>{row.effective_date||'--'}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.my_acknowledgement?.state==='acknowledged'?`Acknowledged ${row.my_acknowledgement.acknowledged_on||''}`:row.my_acknowledgement?.needs_reminder?'Needs acknowledgement':row.my_acknowledgement?.state||'not required'}</td><td className="row-actions"><button onClick={()=>setDetail(row)}>{row.my_acknowledgement?.state==='pending'?'Read & Acknowledge':'View'}</button></td></>}</tr>)}{!rows.length&&<tr><td colSpan={isManager?9:6}><div className="empty-state"><ClipboardCheck size={23}/><strong>{isManager?'No policies created yet.':'No policies require your acknowledgement.'}</strong><span>{isManager?'Create the first policy when your governance content is ready.':'Assigned policies will appear here when an administrator publishes them.'}</span></div></td></tr>}</tbody></table></div></section>}
+  {ackFocus&&!showAcknowledgements&&isManager&&<section className="data-surface review-panel"><div className="panel-title"><div><span className="eyebrow violet-text">PENDING ACKNOWLEDGEMENTS</span><h3>{ackFocus.name}</h3></div><div className="row-actions"><button className="soft-btn" onClick={()=>remind([],ackFocus.id)}>Remind pending</button><button className="soft-btn" onClick={()=>setAckFocus(null)}>Clear</button></div></div><div className="data-table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>Reminder</th><th>Date</th></tr></thead><tbody>{(ackFocus.acknowledgements||[]).filter(row=>row.state==='pending').map(row=><tr key={row.id}><td>{row.employee}</td><td>{row.department||'--'}</td><td><span className={`workflow-pill ${row.state}`}>{row.state}</span></td><td>{row.needs_reminder?'Needs reminder':'--'}</td><td>{row.acknowledged_on||'--'}</td></tr>)}{!(ackFocus.acknowledgements||[]).some(row=>row.state==='pending')&&<tr><td colSpan="5">No pending acknowledgements for this policy.</td></tr>}</tbody></table></div></section>}
+  {modal&&<PolicyForm policy={modal.id?modal:null} data={data} onClose={()=>setModal(null)} onSaved={saved}/>}
+  {detail&&<PolicyDetail policy={detail} isManager={isManager} onClose={()=>setDetail(null)} onAction={action} onAcknowledge={acknowledge} onDrilldown={policy=>setAckFocus(policy)}/>}
+ </section>;
 }
 
 function ModuleWorkspace({ label, onNotify }) {

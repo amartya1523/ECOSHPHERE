@@ -1,6 +1,8 @@
 import base64
+import csv
+import io
 
-from odoo import http, _
+from odoo import http, _, fields
 from odoo.http import request
 from odoo.exceptions import ValidationError
 from odoo.tools import html2plaintext
@@ -206,6 +208,25 @@ class EcoSphereAPI(http.Controller):
             return _("Employee: %s") % (policy.assignment_employee_id.display_name or _("Unassigned"))
         return _("All employees")
 
+    def _policy_acknowledgement_row(self, acknowledgement):
+        today = fields.Date.context_today(acknowledgement)
+        policy = acknowledgement.policy_id
+        needs_reminder = (
+            acknowledgement.state == 'pending'
+            and policy.state in {'active', 'effective'}
+            and bool(policy.effective_date)
+            and policy.effective_date < today
+        )
+        return {
+            'id': acknowledgement.id,
+            'employee': acknowledgement.employee_id.display_name,
+            'department': acknowledgement.department_id.display_name or '',
+            'department_id': acknowledgement.department_id.id or False,
+            'state': acknowledgement.state,
+            'acknowledged_on': str(acknowledgement.acknowledged_on or ''),
+            'needs_reminder': needs_reminder,
+        }
+
     def _policy_row(self, policy, is_admin):
         own_ack = policy.acknowledgement_ids.filtered(lambda row: row.employee_id == request.env.user.employee_id)[:1]
         acknowledgements = policy.acknowledgement_ids.sudo() if is_admin else own_ack
@@ -229,18 +250,14 @@ class EcoSphereAPI(http.Controller):
             'content': policy.content or '',
             'content_text': html2plaintext(policy.content or '').strip(),
             'active': policy.active,
+            'needs_reminder': any(self._policy_acknowledgement_row(row)['needs_reminder'] for row in acknowledgements),
             'my_acknowledgement': own_ack and {
                 'id': own_ack.id,
                 'state': own_ack.state,
                 'acknowledged_on': str(own_ack.acknowledged_on or ''),
+                'needs_reminder': self._policy_acknowledgement_row(own_ack)['needs_reminder'],
             } or False,
-            'acknowledgements': [{
-                'id': acknowledgement.id,
-                'employee': acknowledgement.employee_id.display_name,
-                'department': acknowledgement.department_id.display_name or '',
-                'state': acknowledgement.state,
-                'acknowledged_on': str(acknowledgement.acknowledged_on or ''),
-            } for acknowledgement in acknowledgements],
+            'acknowledgements': [self._policy_acknowledgement_row(acknowledgement) for acknowledgement in acknowledgements],
             'version_history': [{
                 'id': row.id,
                 'version': row.version,
@@ -249,17 +266,31 @@ class EcoSphereAPI(http.Controller):
             } for row in request.env['esg.policy'].search([('name', '=', policy.name)], order='effective_date desc, id desc')],
         }
 
+    def _filtered_policy_rows(self, rows, query=None, status='all', acknowledgement='all', policy_id=None, department_id=None):
+        if query:
+            needle = query.strip().lower()
+            rows = [row for row in rows if needle in ' '.join([row['name'], row['category'], row['version'], row['assignment_summary']]).lower()]
+        if policy_id:
+            rows = [row for row in rows if row['id'] == int(policy_id)]
+        if status and status != 'all':
+            rows = [row for row in rows if row['state'] == status]
+        if department_id:
+            selected = int(department_id)
+            rows = [
+                row for row in rows
+                if row['assignment_department_id'] == selected
+                or any(acknowledgement.get('department_id') == selected for acknowledgement in row['acknowledgements'])
+            ]
+        return rows
+
     @http.route('/ecosphere/api/policy-workspace', type='json', auth='user', methods=['POST'], csrf=False)
-    def policy_workspace(self, query=None, status='all', acknowledgement='all'):
+    def policy_workspace(self, query=None, status='all', acknowledgement='all', policy_id=None, department_id=None):
         is_admin = request.env.user.has_group('eco_sphere_esg.group_esg_admin')
         Policy = request.env['esg.policy']
         policies = Policy.search([], order='effective_date desc, id desc')
         rows = [self._policy_row(policy, is_admin) for policy in policies]
-        if query:
-            needle = query.strip().lower()
-            rows = [row for row in rows if needle in ' '.join([row['name'], row['category'], row['version'], row['assignment_summary']]).lower()]
-        if status and status != 'all':
-            rows = [row for row in rows if row['state'] == status]
+        policy_options = [(row['id'], '%s %s' % (row['name'], row['version'])) for row in rows]
+        rows = self._filtered_policy_rows(rows, query=query, status=status, policy_id=policy_id, department_id=department_id if is_admin else None)
         if acknowledgement == 'required':
             rows = [row for row in rows if row['acknowledgement_required']]
         elif acknowledgement == 'optional':
@@ -269,6 +300,11 @@ class EcoSphereAPI(http.Controller):
                 rows = [row for row in rows if row['pending_count'] > 0]
             else:
                 rows = [row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'pending']
+        elif acknowledgement == 'overdue':
+            if is_admin:
+                rows = [row for row in rows if any(item['needs_reminder'] for item in row['acknowledgements'])]
+            else:
+                rows = [row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['needs_reminder']]
         elif acknowledgement == 'acknowledged' and not is_admin:
             rows = [row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['state'] == 'acknowledged']
         total = len(rows)
@@ -285,11 +321,56 @@ class EcoSphereAPI(http.Controller):
                 'total': total,
                 'active': active,
                 'pending': pending,
+                'needs_reminder': sum(len([item for item in row['acknowledgements'] if item['needs_reminder']]) for row in rows) if is_admin else len([row for row in rows if row['my_acknowledgement'] and row['my_acknowledgement']['needs_reminder']]),
                 'acknowledgement_rate': round(acknowledged * 100.0 / required) if required else 0,
             },
+            'policy_options': policy_options,
             'categories': request.env['esg.category'].name_search('', args=[('category_type', '=', 'governance')], limit=100),
             'departments': request.env['esg.department'].name_search('', limit=100) if is_admin else [],
             'employees': request.env['hr.employee'].sudo().name_search('', limit=100) if is_admin else [],
+        }
+
+    def _acknowledgement_domain(self, acknowledgement_ids=None, policy_id=None, department_id=None, state=None):
+        domain = []
+        if acknowledgement_ids:
+            domain.append(('id', 'in', [int(row_id) for row_id in acknowledgement_ids]))
+        if policy_id:
+            domain.append(('policy_id', '=', int(policy_id)))
+        if department_id:
+            domain.append(('department_id', '=', int(department_id)))
+        if state and state != 'all':
+            domain.append(('state', '=', state))
+        return domain
+
+    @http.route('/ecosphere/api/policy-acknowledgements/remind', type='json', auth='user', methods=['POST'], csrf=False)
+    def policy_acknowledgement_remind(self, acknowledgement_ids=None, policy_id=None, department_id=None):
+        self._require_manager()
+        domain = self._acknowledgement_domain(acknowledgement_ids=acknowledgement_ids, policy_id=policy_id, department_id=department_id, state='pending')
+        acknowledgements = request.env['esg.policy.acknowledgement'].sudo().search(domain)
+        for acknowledgement in acknowledgements:
+            acknowledgement.message_post(body=_("Reminder: please acknowledge policy %s.") % acknowledgement.policy_id.display_name)
+        return {'message': _("Sent %(count)s acknowledgement reminder(s).") % {'count': len(acknowledgements)}, 'count': len(acknowledgements)}
+
+    @http.route('/ecosphere/api/policy-acknowledgements/export', type='json', auth='user', methods=['POST'], csrf=False)
+    def policy_acknowledgement_export(self, policy_id=None, department_id=None, state='all'):
+        self._require_manager()
+        domain = self._acknowledgement_domain(policy_id=policy_id, department_id=department_id, state=state)
+        acknowledgements = request.env['esg.policy.acknowledgement'].sudo().search(domain, order='policy_id, employee_id')
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(['Policy', 'Version', 'Employee', 'Department', 'Status', 'Acknowledged On'])
+        for acknowledgement in acknowledgements:
+            writer.writerow([
+                acknowledgement.policy_id.display_name,
+                acknowledgement.policy_version,
+                acknowledgement.employee_id.display_name,
+                acknowledgement.department_id.display_name or '',
+                acknowledgement.state,
+                str(acknowledgement.acknowledged_on or ''),
+            ])
+        return {
+            'filename': 'policy-acknowledgements.csv',
+            'csv': buffer.getvalue(),
         }
 
     @http.route('/ecosphere/api/team', type='json', auth='user', methods=['POST'], csrf=False)

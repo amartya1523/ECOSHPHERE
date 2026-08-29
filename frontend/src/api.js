@@ -143,6 +143,8 @@ export const deleteResource = (slug, id) => rpc(`/ecosphere/api/resources/${slug
 export const runPolicyAction = (id, action) => rpc(`/ecosphere/api/policies/${id}/${action}`);
 export const acknowledgePolicy = id => rpc(`/ecosphere/api/policy-acknowledgements/${id}/acknowledge`);
 export const getPolicyWorkspace = filters => rpc('/ecosphere/api/policy-workspace', filters || {});
+export const remindPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/remind', filters || {});
+export const exportPolicyAcknowledgements = filters => rpc('/ecosphere/api/policy-acknowledgements/export', filters || {});
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
 export const getGamification = () => rpc('/ecosphere/api/gamification');
