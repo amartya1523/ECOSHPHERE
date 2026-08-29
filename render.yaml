@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: ecosphere
+    name: ecosphere-odoo
     env: docker
     plan: starter
+    rootDir: .
     dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
