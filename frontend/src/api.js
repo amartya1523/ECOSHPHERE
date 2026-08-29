@@ -1,12 +1,39 @@
-const BASE = '/odoo';
+const BASE = import.meta.env.VITE_ODOO_BASE || '/odoo';
+const ODOO_DB = import.meta.env.VITE_ODOO_DB || 'ecosphere-db';
+
+async function readJson(response, fallbackMessage) {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(`${fallbackMessage} Backend returned an empty response. Make sure Docker/Odoo is running on port 8069.`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${fallbackMessage} Backend did not return JSON. Make sure the Vite proxy is reaching Odoo.`);
+  }
+}
+
+function throwJsonRpcError(body, fallbackMessage) {
+  if (body?.error) {
+    const message = body.error.data?.message || body.error.message || fallbackMessage;
+    if (message === 'Access Denied') {
+      throw new Error('Incorrect email or password.');
+    }
+    if (message === 'Database not found.') {
+      throw new Error('EcoSphere database is not running. Start Docker/Odoo and use the ecosphere-db database.');
+    }
+    throw new Error(message);
+  }
+}
 
 export async function signIn(login, password) {
   const response = await fetch(`${BASE}/web/session/authenticate`, {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {db: 'ecosphere_db', login, password}}),
+    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {db: ODOO_DB, login, password}}),
   });
-  const body = await response.json();
-  if (!response.ok || body.error || !body.result?.uid) throw new Error(body.error?.data?.message || 'Incorrect email or password.');
+  const body = await readJson(response, 'Could not sign in.');
+  throwJsonRpcError(body, 'Incorrect email or password.');
+  if (!response.ok || !body.result?.uid) throw new Error('Incorrect email or password.');
   return body.result;
 }
 
@@ -15,15 +42,17 @@ export async function signUp(name, workspace_name, email, password) {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {name, workspace_name, email, password}}),
   });
-  const body = await response.json();
-  if (!response.ok || body.error) throw new Error(body.error?.data?.message || 'Could not create your account.');
+  const body = await readJson(response, 'Could not create your account.');
+  throwJsonRpcError(body, 'Could not create your account.');
+  if (!response.ok) throw new Error('Could not create your account.');
   return body.result;
 }
 
 export async function getDashboard() {
   const response = await fetch(`${BASE}/ecosphere/api/dashboard`, {credentials: 'include'});
+  const body = await readJson(response, 'Could not load live EcoSphere data.');
   if (!response.ok) throw new Error('Could not load live EcoSphere data.');
-  return response.json();
+  return body;
 }
 
 async function rpc(path, params = {}) {
@@ -31,8 +60,9 @@ async function rpc(path, params = {}) {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method: 'call', params}),
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || body.error) throw new Error(body.error?.data?.message || body.error?.message || 'The EcoSphere service could not complete that request.');
+  const body = await readJson(response, 'The EcoSphere service could not complete that request.');
+  throwJsonRpcError(body, 'The EcoSphere service could not complete that request.');
+  if (!response.ok) throw new Error('The EcoSphere service could not complete that request.');
   return body.result;
 }
 
