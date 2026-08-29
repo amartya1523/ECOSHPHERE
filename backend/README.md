@@ -34,6 +34,12 @@ docker compose down
 
 # Restart after Python/XML changes
 docker compose restart odoo
+
+# Update the EcoSphere module after backend changes
+docker compose exec odoo odoo -d ecosphere_db --db_host=db --db_user=odoo --db_password="$POSTGRES_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons -u eco_sphere_esg --stop-after-init --no-http
+
+# Run the EcoSphere module tests
+docker compose exec odoo odoo -d ecosphere_test --db_host=db --db_user=odoo --db_password="$POSTGRES_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons -i eco_sphere_esg --test-enable --test-tags /eco_sphere_esg --stop-after-init --no-http --without-demo=all
 ```
 
 Do not run `docker compose down -v` unless you intentionally want to delete the local PostgreSQL database.
