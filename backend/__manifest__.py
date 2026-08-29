@@ -2,7 +2,7 @@
     "name": "EcoSphere ESG Management",
     "summary": "Environmental, social and governance management for Odoo",
     "description": "EcoSphere ESG operations management for environmental, social, governance, gamification, and reporting workflows.",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "category": "Sustainability",
     "author": "EcoSphere",
     "license": "LGPL-3",
@@ -29,4 +29,5 @@
     ],
     "application": True,
     "installable": True,
+    "post_init_hook": "post_init_hook",
 }

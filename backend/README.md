@@ -20,8 +20,14 @@ The backend is an Odoo addon, so it needs both an Odoo server and PostgreSQL.
    ```
 
 5. Open `http://localhost:8069`.
-6. Create a database named `ecosphere_db` in the Odoo database manager.
-7. In Odoo, open **Apps** → **Update Apps List** → search **EcoSphere ESG Management** → **Install**.
+6. Sign in after Docker finishes bootstrapping the `ecosphere_db` database and installing the EcoSphere module.
+
+   Local Docker also creates two demo accounts:
+
+   ```text
+   admin@ecosphere.local / Admin@EcoSphere2026
+   employee@ecosphere.local / Employee@EcoSphere2026
+   ```
 
 Docker mounts this `backend/` folder into Odoo as `/mnt/extra-addons/eco_sphere_esg`. That keeps the local project simple while preserving the Odoo technical module name `eco_sphere_esg`.
 

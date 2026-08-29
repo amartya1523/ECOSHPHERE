@@ -29,11 +29,13 @@ services:
       PORT: 5432
       USER: ${POSTGRES_USER:-odoo}
       PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+      ODOO_DATABASE: ${ODOO_DATABASE:-ecosphere_db}
+      ECOSPHERE_SEED_DEMO_ACCOUNTS: ${ECOSPHERE_SEED_DEMO_ACCOUNTS:-1}
     volumes:
       - .:/mnt/extra-addons/eco_sphere_esg
       - ecosphere-odoo-data:/var/lib/odoo
     command: >-
-      odoo --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+      bash /mnt/extra-addons/eco_sphere_esg/docker-start.sh
 
 volumes:
   ecosphere-db-data:
