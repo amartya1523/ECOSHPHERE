@@ -10,10 +10,10 @@ export async function signIn(login, password) {
   return body.result;
 }
 
-export async function signUp(name, email, password) {
+export async function signUp(name, workspace_name, email, password) {
   const response = await fetch(`${BASE}/ecosphere/api/signup`, {
     method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {name, email, password}}),
+    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {name, workspace_name, email, password}}),
   });
   const body = await response.json();
   if (!response.ok || body.error) throw new Error(body.error?.data?.message || 'Could not create your account.');

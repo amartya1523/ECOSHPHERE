@@ -152,23 +152,26 @@ class EcoSphereAPI(http.Controller):
         return {'id': user.id, 'message': _("Employee account created. Share the login credentials securely.")}
 
     @http.route('/ecosphere/api/signup', type='json', auth='public', methods=['POST'], csrf=False)
-    def signup(self, name, email, password):
+    def signup(self, name, workspace_name, email, password):
         """Provision an enterprise owner; employee accounts remain admin-only."""
-        name, email = (name or '').strip(), (email or '').strip().lower()
-        if len(name) < 2 or '@' not in email or len(password or '') < 8:
-            raise ValidationError(_("Enter a name, valid work email, and password of at least 8 characters."))
+        name, workspace_name, email = (name or '').strip(), (workspace_name or '').strip(), (email or '').strip().lower()
+        if len(name) < 2 or len(workspace_name) < 2 or '@' not in email or len(password or '') < 8:
+            raise ValidationError(_("Enter your name, workspace name, valid work email, and a password of at least 8 characters."))
         Users = request.env['res.users'].sudo()
         if Users.search_count([('login', '=', email)]):
             raise ValidationError(_("An account already exists for this email address."))
         manager_group = request.env.ref('eco_sphere_esg.group_esg_manager').sudo()
+        workspace = request.env['res.company'].sudo().create({'name': workspace_name})
         user = Users.with_context(no_reset_password=True).create({
             'name': name,
             'login': email,
             'email': email,
             'password': password,
+            'company_id': workspace.id,
+            'company_ids': [(6, 0, [workspace.id])],
             'groups_id': [(6, 0, [manager_group.id])],
         })
-        return {'id': user.id, 'message': _("Enterprise administrator account created.")}
+        return {'id': user.id, 'workspace': workspace.name, 'message': _("Enterprise administrator account created.")}
 
     @http.route('/ecosphere/api/dashboard', type='http', auth='user', methods=['GET'], csrf=False)
     def dashboard(self):
@@ -184,6 +187,7 @@ class EcoSphereAPI(http.Controller):
                 'name': request.env.user.name,
                 'initials': ''.join(part[:1] for part in request.env.user.name.split()[:2]).upper(),
                 'role': 'ESG Manager' if request.env.user.has_group('eco_sphere_esg.group_esg_manager') else 'ESG User',
+                'workspace': request.env.company.name,
             },
             'kpis': {'environmental': average('environmental_score'), 'social': average('social_score'), 'governance': average('governance_score'), 'overall': average('total_score')},
             'ranking': [{'name': row.department_id.name, 'score': round(row.total_score, 1)} for row in sorted(rows, key=lambda row: row.total_score, reverse=True)[:5]],
