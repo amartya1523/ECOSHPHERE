@@ -24,6 +24,38 @@ class ESGDepartmentScore(models.Model):
         for score in self:
             score.total_score = (score.environmental_score * env_weight + score.social_score * social_weight + score.governance_score * gov_weight)
 
+    @api.model
+    def _score_values_for_department(self, department, score_date):
+        """Deterministic 0–100 rollup; lower carbon and fewer overdue issues score higher."""
+        carbon_domain = [("department_id", "=", department.id), ("transaction_date", "<=", score_date)]
+        carbon = self.env["esg.carbon.transaction"].read_group(carbon_domain, ["co2e_kg:sum"], [])[0].get("co2e_kg", 0.0)
+        environmental = max(0.0, min(100.0, 100.0 - carbon / 10.0))
+
+        activities = self.env["esg.csr.participation"].search_count([("activity_id.department_id", "=", department.id)])
+        approved = self.env["esg.csr.participation"].search_count([("activity_id.department_id", "=", department.id), ("state", "=", "approved")])
+        social = 0.0 if not activities else approved * 100.0 / activities
+
+        issues = self.env["esg.compliance.issue"].search_count([("department_id", "=", department.id)])
+        overdue = self.env["esg.compliance.issue"].search_count([("department_id", "=", department.id), ("is_overdue", "=", True)])
+        governance = 100.0 if not issues else max(0.0, 100.0 - overdue * 100.0 / issues)
+        return {"environmental_score": environmental, "social_score": social, "governance_score": governance}
+
+    @api.model
+    def action_recalculate_all(self):
+        score_date = fields.Date.today()
+        for department in self.env["esg.department"].search([]):
+            values = self._score_values_for_department(department, score_date)
+            score = self.search([("department_id", "=", department.id), ("score_date", "=", score_date)], limit=1)
+            if score:
+                score.write(values)
+            else:
+                self.create({"department_id": department.id, "score_date": score_date, **values})
+        return True
+
+    @api.model
+    def _cron_recalculate_scores(self):
+        return self.action_recalculate_all()
+
     @api.constrains("environmental_score", "social_score", "governance_score")
     def _check_score_range(self):
         for score in self:
@@ -74,6 +106,10 @@ class ResConfigSettings(models.TransientModel):
     require_csr_evidence = fields.Boolean(config_parameter="eco_sphere_esg.require_csr_evidence")
     auto_award_badges = fields.Boolean(config_parameter="eco_sphere_esg.auto_award_badges")
     compliance_notifications = fields.Boolean(config_parameter="eco_sphere_esg.compliance_notifications")
+    csr_notifications = fields.Boolean(config_parameter="eco_sphere_esg.csr_notifications", default=True)
+    challenge_notifications = fields.Boolean(config_parameter="eco_sphere_esg.challenge_notifications", default=True)
+    policy_notifications = fields.Boolean(config_parameter="eco_sphere_esg.policy_notifications", default=True)
+    badge_notifications = fields.Boolean(config_parameter="eco_sphere_esg.badge_notifications", default=True)
     environmental_weight = fields.Float(config_parameter="eco_sphere_esg.environmental_weight", default=40.0)
     social_weight = fields.Float(config_parameter="eco_sphere_esg.social_weight", default=30.0)
     governance_weight = fields.Float(config_parameter="eco_sphere_esg.governance_weight", default=30.0)

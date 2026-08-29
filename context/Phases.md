@@ -44,41 +44,41 @@
 ## Phase 6: Environmental Dashboard & Department Carbon Tracking
 **Goal:** Visual rollup of environmental data per department.
 **Done when:**
-- [ ] Department Carbon Tracking view (grouped/pivoted by Department, date)
-- [ ] Environmental Dashboard (native Odoo dashboard view or OWL widget) showing totals, trend, goal progress
-- [ ] Manually verified against Phase 4/5 test data that numbers match
+- [x] Department Carbon Tracking view (grouped/pivoted by Department, date)
+- [x] Environmental Dashboard (native Odoo dashboard view or OWL widget) showing totals, trend, goal progress
+- [x] Manually verified against Phase 4/5 test data that numbers match
 
 ## Phase 7: Social — CSR Activities & Employee Participation
 **Goal:** Core social-module workflow: activity creation → employee participation → approval.
 **Done when:**
-- [ ] `esg.csr.activity` model (Title, Category [linked to `esg.category`], Description, Date, Department)
-- [ ] `esg.employee.participation` model: Employee, Activity, Proof (attachment field), Approval Status (Selection: Draft/Submitted/Approved/Rejected), Points Earned, Completion Date
-- [ ] Evidence Requirement toggle enforced: cannot set Approval Status = Approved without a Proof attachment when toggle is on (`@api.constrains`)
-- [ ] Tests: toggle on, attempt approval without proof → raises `ValidationError`; attach proof → approval succeeds
+- [x] `esg.csr.activity` model (Title, Category [linked to `esg.category`], Description, Date, Department)
+- [x] `esg.csr.participation` model: Employee, Activity, Proof (attachment field), Approval Status (Selection: Draft/Submitted/Approved/Rejected), Points Earned, Completion Date
+- [x] Evidence Requirement toggle enforced: cannot set Approval Status = Approved without a Proof attachment when toggle is on (`@api.constrains`)
+- [x] Tests: toggle on, attempt approval without proof → raises `ValidationError`; attach proof → approval succeeds
 
 ## Phase 8: Social — Diversity Metrics & Training Completion
 **Goal:** Remaining social sub-features.
 **Done when:**
-- [ ] `esg.diversity.metric` model (Department, metric type, value, period)
-- [ ] Training Completion tracking (model or extension linking to existing `hr` training/e-learning if available, else standalone `esg.training.completion`)
-- [ ] Views accessible from Social menu, filterable by Department
+- [x] `esg.diversity.metric` model (Department, metric type, value, period)
+- [x] Training Completion tracking (model or extension linking to existing `hr` training/e-learning if available, else standalone `esg.training.completion`)
+- [x] Views accessible from Social menu, filterable by Department
 
 ## Phase 9: Governance — Policies & Acknowledgements
 **Goal:** Policy lifecycle and employee acknowledgement tracking.
 **Done when:**
-- [ ] `esg.policy` model (Title, Description, Document attachment, Effective Date, Status)
-- [ ] `esg.policy.acknowledgement` model (Employee, Policy, Acknowledged Date, Status)
-- [ ] Policy Acknowledgement Reminder notification wired to Odoo `mail` (stub trigger is fine here; full Notification System comes in Phase 12)
-- [ ] Tests: employee acknowledges a policy, status updates correctly
+- [x] `esg.policy` model (Title, Description, Document attachment, Effective Date, Status)
+- [x] `esg.policy.acknowledgement` model (Employee, Policy, Acknowledged Date, Status)
+- [x] Policy Acknowledgement Reminder notification wired to Odoo `mail` (stub trigger is fine here; full Notification System comes in Phase 12)
+- [x] Tests: employee acknowledges a policy, status updates correctly
 
 ## Phase 10: Governance — Audits & Compliance Issues
 **Goal:** Audit and compliance workflow with mandatory ownership enforcement.
 **Done when:**
-- [ ] `esg.audit` model (Department, Auditor, Date, Findings summary, Status)
-- [ ] `esg.compliance.issue` model: Audit (link), Severity (Selection: Low/Medium/High, per mockup), Description, Owner (required), Due Date (required), Status (Selection: Open/Resolved, expandable later)
-- [ ] `@api.constrains` enforcing Owner and Due Date are always set — record cannot save without them
-- [ ] `ir.cron` job flags issues where Due Date has passed and Status is still Open (sets a computed `is_overdue` flag or similar)
-- [ ] Tests: attempt to create Compliance Issue without Owner → fails; create one with a past Due Date, run the cron, confirm it's flagged
+- [x] `esg.audit` model (Department, Auditor, Date, Findings summary, Status)
+- [x] `esg.compliance.issue` model: Audit (link), Severity (Selection: Low/Medium/High, per mockup), Description, Owner (required), Due Date (required), Status (Selection: Open/Resolved, expandable later)
+- [x] `@api.constrains` enforcing Owner and Due Date are always set — record cannot save without them
+- [x] `ir.cron` job flags issues where Due Date has passed and Status is still Open (sets a computed `is_overdue` flag or similar)
+- [x] Tests: attempt to create Compliance Issue without Owner → fails; create one with a past Due Date, run the cron, confirm it's flagged
 
 ## Phase 11: Gamification — Challenges & Challenge Participation
 **Goal:** Full challenge lifecycle and participation tracking.

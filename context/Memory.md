@@ -24,6 +24,11 @@
 
 <!-- New entries go below this line -->
 
+## 2026-08-29 — Phases 6–10 completed
+- Status: Added a native environmental dashboard and departmental monthly carbon rollup, CSR evidence approval controls, diversity metrics, standalone training completion tracking, policy attachments/acknowledgements/reminders, and compliance overdue tracking via scheduled cron.
+- Verification: Upgraded `eco_sphere_esg` on the local Odoo 17 `ecosphere_db`. The Odoo suite reports 10 test methods, 0 failures and 0 errors (14 total EcoSphere tests).
+- Notes: The Odoo 17 runtime requires `<tree>` XML roots; merged Odoo 18-style `<list>` roots were normalized across module views during validation.
+
 ## 2026-08-29 — Standalone frontend
 - Status: Added `frontend/` with Vite, React and Framer Motion. It contains Apple-inspired login/sign-up views, a responsive executive dashboard and reduced-motion support. `npm run build` passes.
 - Next: Connect authentication and dashboard data to Odoo through secure HTTP/JSON-RPC endpoints.

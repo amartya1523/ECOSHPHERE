@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getDashboard, signIn, signUp } from './api';
 import { AnimatePresence, motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import {
   ArrowUpRight, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck,
@@ -30,13 +31,17 @@ function Login({ onLogin }) {
   const [error, setError] = useState('');
   const isCreate = mode === 'create';
   const changeMode = (nextMode) => { setMode(nextMode); setError(''); setLoading(false); };
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     if (isCreate && form.get('password') !== form.get('confirmPassword')) { setError('Passwords do not match. Please try again.'); return; }
     if (isCreate && !form.get('terms')) { setError('Please accept the terms before continuing.'); return; }
     setError(''); setLoading(true);
-    window.setTimeout(onLogin, 650);
+    try {
+      if (isCreate) await signUp(form.get('name'), form.get('email'), form.get('password'));
+      await signIn(form.get('email'), form.get('password'));
+      onLogin();
+    } catch (requestError) { setError(requestError.message); setLoading(false); }
   };
   return <main className="login-page">
     <div className="aurora aurora-one" /><div className="aurora aurora-two" />
@@ -65,8 +70,10 @@ function PeopleCard() { return <section className="panel people"><div className=
 function RankingCard() { return <section className="panel ranking"><div className="panel-title"><div><span className="eyebrow violet-text">ORGANIZATION</span><h3>Department momentum</h3></div><button className="soft-btn">This quarter <ChevronDown size={15}/></button></div><div className="rank-list">{[['Operations',92,'#663fd8'],['Product',86,'#4773de'],['People',79,'#3ca4c9'],['Finance',74,'#61ac75']].map((r,i)=><div className="rank-row" key={r[0]}><span>0{i+1}</span><strong>{r[0]}</strong><div><motion.i initial={{scaleX:0}} animate={{scaleX:r[1]/100}} transition={{delay:.3+i*.08}} style={{background:r[2]}}/></div><b>{r[1]}</b></div>)}</div></section> }
 
 function Dashboard({ onLogout }) {
- const [active,setActive] = useState('Overview'); const [menu,setMenu]=useState(false); const { scrollY }=useScroll(); const glowY=useSpring(useTransform(scrollY,[0,700],[0,150]),{stiffness:90,damping:25});
- return <div className="app-shell"><Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu}/><main className="workspace-main"><motion.div className="dashboard-glow" style={{y:glowY}}/><header className="topbar"><button className="mobile-menu" onClick={()=>setMenu(true)}><Menu size={21}/></button><div className="crumb"><span>EcoSphere</span><ChevronRight size={14}/><strong>{active}</strong></div><div className="top-actions"><button className="search"><Search size={17}/><span>Search anything</span><kbd>⌘ K</kbd></button><button className="icon-btn notification"><Bell size={19}/><i/></button><button className="top-avatar">AV</button><button className="logout" onClick={onLogout} title="Sign out"><LogOut size={17}/></button></div></header><div className="content"><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">FRIDAY, 29 AUGUST</span><h1>Good morning, Amartya.</h1><p>Here’s how your organization is moving the needle.</p></div><button className="primary-btn"><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{kpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard/><PeopleCard/></section><section className="bento lower-bento"><RankingCard/><section className="panel impact-card"><div className="impact-orbit orbit-1"/><div className="impact-orbit orbit-2"/><CloudSun size={30}/><span className="eyebrow">THIS MONTH</span><h3>1.8t <em>CO₂e avoided</em></h3><p>That’s the equivalent of planting 29 trees.</p><button className="text-button">Explore impact <ArrowUpRight size={15}/></button></section><section className="panel next-card"><span className="eyebrow orange-text">UP NEXT</span><h3>Quarterly ESG review</h3><p>Review your goals and invite your team before September 05.</p><div><span className="date-chip">05<br/><small>SEP</small></span><button className="round-action"><ArrowUpRight size={18}/></button></div></section></section></div></main></div>
+ const [active,setActive] = useState('Overview'); const [menu,setMenu]=useState(false); const [live,setLive]=useState(null); const { scrollY }=useScroll(); const glowY=useSpring(useTransform(scrollY,[0,700],[0,150]),{stiffness:90,damping:25});
+ useEffect(() => { getDashboard().then(setLive).catch(() => setLive(null)); }, []);
+ const shownKpis = live ? [{label:'Environmental',score:live.kpis.environmental,delta:'Live',color:'green'},{label:'Social',score:live.kpis.social,delta:'Live',color:'blue'},{label:'Governance',score:live.kpis.governance,delta:'Live',color:'violet'},{label:'Overall ESG',score:live.kpis.overall,delta:'Live',color:'ink'}] : kpis;
+ return <div className="app-shell"><Sidebar active={active} setActive={setActive} open={menu} setOpen={setMenu}/><main className="workspace-main"><motion.div className="dashboard-glow" style={{y:glowY}}/><header className="topbar"><button className="mobile-menu" onClick={()=>setMenu(true)}><Menu size={21}/></button><div className="crumb"><span>EcoSphere</span><ChevronRight size={14}/><strong>{active}</strong></div><div className="top-actions"><button className="search"><Search size={17}/><span>Search anything</span><kbd>⌘ K</kbd></button><button className="icon-btn notification"><Bell size={19}/><i/></button><button className="top-avatar">AV</button><button className="logout" onClick={onLogout} title="Sign out"><LogOut size={17}/></button></div></header><div className="content"><motion.div className="welcome" initial={{opacity:0,y:16}} animate={{opacity:1,y:0}}><div><span className="eyebrow">LIVE ODOO DASHBOARD</span><h1>Good morning, {live?.user?.name || "there"}. </h1><p>Here’s how your organization is moving the needle.</p></div><button className="primary-btn"><Plus size={18}/> Log carbon data</button></motion.div><section className="score-grid">{shownKpis.map((k,i)=><ScoreCard item={k} index={i} key={k.label}/>)}</section><section className="bento primary-bento"><TrendCard/><PeopleCard/></section><section className="bento lower-bento"><RankingCard/><section className="panel impact-card"><div className="impact-orbit orbit-1"/><div className="impact-orbit orbit-2"/><CloudSun size={30}/><span className="eyebrow">THIS MONTH</span><h3>1.8t <em>CO₂e avoided</em></h3><p>That’s the equivalent of planting 29 trees.</p><button className="text-button">Explore impact <ArrowUpRight size={15}/></button></section><section className="panel next-card"><span className="eyebrow orange-text">UP NEXT</span><h3>Quarterly ESG review</h3><p>Review your goals and invite your team before September 05.</p><div><span className="date-chip">05<br/><small>SEP</small></span><button className="round-action"><ArrowUpRight size={18}/></button></div></section></section></div></main></div>
 }
 
 export default function App(){ const [signedIn,setSignedIn]=useState(false); return <AnimatePresence mode="wait">{signedIn ? <motion.div key="app" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}><Dashboard onLogout={()=>setSignedIn(false)}/></motion.div> : <motion.div key="login" exit={{opacity:0,scale:.985}}><Login onLogin={()=>setSignedIn(true)}/></motion.div>}</AnimatePresence> }

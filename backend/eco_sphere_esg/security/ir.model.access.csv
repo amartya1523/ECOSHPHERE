@@ -11,10 +11,15 @@ access_esg_carbon_transaction_user,esg.carbon.transaction user,model_esg_carbon_
 access_esg_carbon_transaction_manager,esg.carbon.transaction manager,model_esg_carbon_transaction,group_esg_admin,1,1,1,1
 access_esg_environmental_goal_user,esg.environmental.goal user,model_esg_environmental_goal,group_esg_user,1,1,1,0
 access_esg_environmental_goal_manager,esg.environmental.goal manager,model_esg_environmental_goal,group_esg_admin,1,1,1,1
+access_esg_department_carbon_report_user,esg.department.carbon.report user,model_esg_department_carbon_report,group_esg_user,1,0,0,0
 access_esg_csr_activity_user,esg.csr.activity user,model_esg_csr_activity,group_esg_user,1,0,0,0
 access_esg_csr_activity_manager,esg.csr.activity manager,model_esg_csr_activity,group_esg_admin,1,1,1,1
 access_esg_csr_participation_user,esg.csr.participation user,model_esg_csr_participation,group_esg_user,1,1,1,0
 access_esg_csr_participation_manager,esg.csr.participation manager,model_esg_csr_participation,group_esg_admin,1,1,1,1
+access_esg_diversity_metric_user,esg.diversity.metric user,model_esg_diversity_metric,group_esg_user,1,1,1,0
+access_esg_diversity_metric_manager,esg.diversity.metric manager,model_esg_diversity_metric,group_esg_admin,1,1,1,1
+access_esg_training_completion_user,esg.training.completion user,model_esg_training_completion,group_esg_user,1,1,1,0
+access_esg_training_completion_manager,esg.training.completion manager,model_esg_training_completion,group_esg_admin,1,1,1,1
 access_esg_policy_user,esg.policy user,model_esg_policy,group_esg_user,1,0,0,0
 access_esg_policy_manager,esg.policy manager,model_esg_policy,group_esg_admin,1,1,1,1
 access_esg_policy_ack_user,esg.policy.ack user,model_esg_policy_acknowledgement,group_esg_user,1,1,1,0

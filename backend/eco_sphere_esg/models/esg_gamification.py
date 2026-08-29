@@ -19,10 +19,20 @@ class ESGChallenge(models.Model):
     participation_ids = fields.One2many("esg.challenge.participation", "challenge_id")
     _sql_constraints = [("esg_challenge_xp_nonnegative", "CHECK(xp_value >= 0)", "XP cannot be negative.")]
 
-    def action_activate(self): self.write({"state": "active"})
-    def action_review(self): self.write({"state": "under_review"})
-    def action_complete(self): self.write({"state": "completed"})
-    def action_archive(self): self.write({"state": "archived"})
+    def _transition(self, target, allowed):
+        if any(record.state not in allowed for record in self):
+            raise ValidationError(_("This challenge cannot move to the requested state."))
+        self.with_context(esg_state_action=True).write({"state": target})
+
+    def action_activate(self): self._transition("active", {"draft"})
+    def action_review(self): self._transition("under_review", {"active"})
+    def action_complete(self): self._transition("completed", {"under_review"})
+    def action_archive(self): self.with_context(esg_state_action=True).write({"state": "archived"})
+
+    def write(self, values):
+        if "state" in values and not self.env.context.get("esg_state_action"):
+            raise ValidationError(_("Use the challenge action buttons to change its lifecycle state."))
+        return super().write(values)
 
 
 class ESGChallengeParticipation(models.Model):
@@ -85,6 +95,20 @@ class ESGBadge(models.Model):
         for badge in self:
             if not Award.search_count([("badge_id", "=", badge.id), ("employee_id", "=", employee.id)]):
                 Award.create({"badge_id": badge.id, "employee_id": employee.id})
+                employee.message_post(body=_("You unlocked the EcoSphere badge: %s") % badge.name)
+
+    @api.model
+    def _cron_auto_award_badges(self):
+        if self.env["ir.config_parameter"].sudo().get_param("eco_sphere_esg.auto_award_badges", "True") != "True":
+            return True
+        Participation = self.env["esg.challenge.participation"]
+        for employee in self.env["hr.employee"].search([]):
+            approved = Participation.search([("employee_id", "=", employee.id), ("state", "=", "approved")])
+            xp = sum(approved.mapped("xp_awarded"))
+            for badge in self.search([]):
+                if xp >= badge.minimum_xp and len(approved) >= badge.minimum_challenges:
+                    badge._grant(employee)
+        return True
 
 
 class ESGBadgeAward(models.Model):

@@ -11,10 +11,32 @@ class ESGPolicy(models.Model):
     name = fields.Char(required=True)
     reference = fields.Char(required=True, copy=False)
     content = fields.Html(required=True)
+    document = fields.Binary(attachment=True)
+    document_filename = fields.Char()
     effective_date = fields.Date(required=True, default=fields.Date.context_today)
+    state = fields.Selection([
+        ("draft", "Draft"),
+        ("effective", "Effective"),
+        ("archived", "Archived"),
+    ], required=True, default="draft", tracking=True)
     active = fields.Boolean(default=True)
     acknowledgement_ids = fields.One2many("esg.policy.acknowledgement", "policy_id")
     _sql_constraints = [("esg_policy_reference_unique", "unique(reference)", "Policy reference must be unique.")]
+
+    def action_make_effective(self):
+        self.write({"state": "effective"})
+
+    @api.model
+    def _cron_send_acknowledgement_reminders(self):
+        pending = self.env["esg.policy.acknowledgement"].search([
+            ("state", "=", "pending"),
+            ("policy_id.state", "=", "effective"),
+        ])
+        for acknowledgement in pending:
+            acknowledgement.message_post(
+                body=_("Reminder: please acknowledge policy %s.") % acknowledgement.policy_id.display_name
+            )
+        return True
 
 
 class ESGPolicyAcknowledgement(models.Model):
@@ -31,6 +53,7 @@ class ESGPolicyAcknowledgement(models.Model):
 
     def action_acknowledge(self):
         self.write({"state": "acknowledged", "acknowledged_on": fields.Datetime.now()})
+        self.message_post(body=_("Policy acknowledged by %s.") % self.employee_id.name)
 
 
 class ESGAudit(models.Model):
@@ -62,27 +85,49 @@ class ESGComplianceIssue(models.Model):
     owner_id = fields.Many2one("hr.employee", required=True, tracking=True)
     due_date = fields.Date(required=True, tracking=True)
     state = fields.Selection([("open", "Open"), ("resolved", "Resolved")], required=True, default="open", tracking=True)
-    is_overdue = fields.Boolean(compute="_compute_is_overdue", search="_search_is_overdue")
+    is_overdue = fields.Boolean(default=False, readonly=True, index=True)
     resolved_on = fields.Datetime(readonly=True)
 
-    @api.depends("state", "due_date")
-    def _compute_is_overdue(self):
-        today = fields.Date.today()
+    @api.constrains("owner_id", "due_date")
+    def _check_required_ownership(self):
         for issue in self:
-            issue.is_overdue = issue.state == "open" and bool(issue.due_date and issue.due_date < today)
-
-    def _search_is_overdue(self, operator, value):
-        if (operator, value) in [("=", True), ("!=", False)]:
-            return [("state", "=", "open"), ("due_date", "<", fields.Date.today())]
-        return ["|", ("state", "!=", "open"), ("due_date", ">=", fields.Date.today())]
+            if not issue.owner_id:
+                raise ValidationError(_("A compliance issue must have an owner."))
+            if not issue.due_date:
+                raise ValidationError(_("A compliance issue must have a due date."))
 
     @api.model_create_multi
     def create(self, values_list):
+        for values in values_list:
+            if not values.get("owner_id"):
+                raise ValidationError(_("A compliance issue must have an owner."))
+            if not values.get("due_date"):
+                raise ValidationError(_("A compliance issue must have a due date."))
         issues = super().create(values_list)
+        issues._refresh_overdue_flag()
         if self.env["ir.config_parameter"].sudo().get_param("eco_sphere_esg.compliance_notifications", "True") == "True":
             for issue in issues:
                 issue.message_post(body=_("New compliance issue raised. Owner: %s") % issue.owner_id.name)
         return issues
+
+    def write(self, values):
+        result = super().write(values)
+        if {"state", "due_date"}.intersection(values):
+            self._refresh_overdue_flag()
+        return result
+
+    def _refresh_overdue_flag(self):
+        today = fields.Date.today()
+        for issue in self:
+            overdue = issue.state == "open" and bool(issue.due_date and issue.due_date < today)
+            if issue.is_overdue != overdue:
+                issue.with_context(skip_esg_overdue_refresh=True).write({"is_overdue": overdue})
+
+    @api.model
+    def _cron_update_overdue(self):
+        issues = self.search([("state", "=", "open")])
+        issues._refresh_overdue_flag()
+        return True
 
     def action_resolve(self):
         self.write({"state": "resolved", "resolved_on": fields.Datetime.now()})
