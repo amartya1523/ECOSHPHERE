@@ -199,6 +199,7 @@ class EcoSphereAPI(http.Controller):
         challenge_rows = []
         for challenge in challenges:
             joined = own_participation.get(challenge.id)
+            participation_rows = Participation.sudo().search([('challenge_id', '=', challenge.id)], order='create_date desc')
             challenge_rows.append({
                 'id': challenge.id,
                 'name': challenge.name,
@@ -210,8 +211,17 @@ class EcoSphereAPI(http.Controller):
                 'game_config': challenge.game_config if is_manager else self._player_config(challenge),
                 'deadline': str(challenge.deadline or ''),
                 'state': challenge.state,
-                'participants': Participation.sudo().search_count([('challenge_id', '=', challenge.id)]),
+                'participants': len(participation_rows),
                 'participation': {'id': joined.id, 'state': joined.state, 'progress': joined.progress, 'eligibility_status': joined.eligibility_status, 'verification_reason': joined.verification_reason or ''} if joined else False,
+                'participant_details': ([{
+                    'employee': row.employee_id.name,
+                    'joined_on': str(row.create_date or ''),
+                    'state': row.state,
+                    'progress': row.progress,
+                    'xp': row.xp_awarded,
+                    'eligibility': row.eligibility_status,
+                    'reason': row.verification_reason or '',
+                } for row in participation_rows] if is_manager else []),
             })
         awarded = request.env['esg.badge.award'].sudo()
         badges = request.env['esg.badge'].search([])
