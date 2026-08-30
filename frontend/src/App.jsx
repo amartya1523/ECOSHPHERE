@@ -74,6 +74,14 @@ function Login({ onLogin, onBack }) {
   const createEnterpriseAdmin = async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const name = String(form.get('name') || '').trim(); const workspaceName = String(form.get('workspace_name') || '').trim(); const email = String(form.get('email') || '').trim(); const password = String(form.get('password') || ''); const confirmPassword = String(form.get('confirm_password') || ''); if (password !== confirmPassword) { setError('Passwords do not match.'); return; } setError(''); setLoading(true); try { await signUp(name, workspaceName, email, password); const session = await signIn(email, password); onLogin(profileFromSession(session)); } catch (requestError) { setError(requestError.message); setLoading(false); } };
   return <main className="login-page">
     <div className="aurora aurora-one" /><div className="aurora aurora-two" /><div className="login-geo" aria-hidden="true" />
+    <div className="login-float-field" aria-hidden="true">
+      <div className="login-float login-float-photo login-float-a"><img src="/images/ecosphere-landscape.png" alt=""/></div>
+      <div className="login-float login-float-signal login-float-b"><Leaf size={18}/><span><b>−18.6%</b><small>Carbon intensity</small></span></div>
+      <div className="login-float login-float-token login-float-c"><Users size={24}/><b>1.2K</b><small>People active</small></div>
+      <div className="login-float login-float-photo login-float-d"><img src="/images/ecosphere-landscape.png" alt=""/></div>
+      <div className="login-float login-float-signal login-float-e"><ShieldCheck size={18}/><span><b>96%</b><small>Policy coverage</small></span></div>
+      <div className="login-float login-float-ring login-float-f"><Sparkles size={26}/></div>
+    </div>
     <motion.header className="login-nav" initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 220, damping: 24 }}>
       <button className="brand login-brand" onClick={onBack}><Mark /><span>EcoSphere</span></button><button className="help-link" onClick={onBack}>Back to the story <ArrowUpRight size={16}/></button>
     </motion.header>
