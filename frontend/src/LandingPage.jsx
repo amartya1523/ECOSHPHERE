@@ -1,605 +1,124 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  motion,
-  useScroll,
-  useTransform,
-  useSpring,
-  useInView,
-  useMotionValue,
-  animate,
-} from 'framer-motion';
-import { ArrowUpRight, Leaf, BarChart3, ShieldCheck, Zap, Users, Globe, Star } from 'lucide-react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { ArrowDown, ArrowRight, ArrowUpRight, BarChart3, Check, CircleDot, FileCheck2, Globe2, Leaf, Menu, ShieldCheck, Sparkles, Users, X, Zap } from 'lucide-react';
+import './LandingPage.css';
 
-/* ─── helpers ─────────────────────────────────────────────── */
+gsap.registerPlugin(ScrollTrigger);
 
-function Mark() {
-  return (
-    <div className="mark">
-      <span /><span /><span />
-    </div>
-  );
-}
-
-/* Animated counter that counts up when visible */
-function AnimatedCount({ to, suffix = '' }) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: '-60px' });
-  const count = useMotionValue(0);
-  const [display, setDisplay] = useState('0');
-
-  useEffect(() => {
-    if (!inView) return;
-    const ctrl = animate(count, to, {
-      duration: 2,
-      ease: [0.16, 1, 0.3, 1],
-      onUpdate: v => {
-        if (to >= 1000) {
-          setDisplay((v / 1000).toFixed(1) + 'k');
-        } else if (to < 10) {
-          setDisplay(v.toFixed(1));
-        } else {
-          setDisplay(Math.round(v).toString());
-        }
-      },
-    });
-    return ctrl.stop;
-  }, [inView, count, to]);
-
-  return <span ref={ref}>{display}{suffix}</span>;
-}
-
-/* ─── Feature data ────────────────────────────────────────── */
-
-const features = [
-  {
-    icon: BarChart3,
-    color: '#2a7a4b',
-    bg: 'linear-gradient(135deg,#e8fdf0,#f0faf4)',
-    accent: '#c8fca0',
-    label: 'Environmental',
-    title: 'Carbon, counted precisely.',
-    body: 'Log verified operational emissions, track product ESG profiles, and hit science-based targets — all in a single connected ledger.',
-    items: ['Real-time CO₂e dashboard', 'Emission factor library', 'Goal tracking & projections'],
-  },
-  {
-    icon: Users,
-    color: '#2c5fcb',
-    bg: 'linear-gradient(135deg,#eef3ff,#f4f7ff)',
-    accent: '#a8c4fc',
-    label: 'Social',
-    title: 'People impact, made visible.',
-    body: 'Plan CSR initiatives, capture participation evidence, and surface workforce diversity — so culture and compliance move together.',
-    items: ['CSR activity planner', 'Employee participation tracker', 'Diversity dashboard'],
-  },
-  {
-    icon: ShieldCheck,
-    color: '#6b3cc9',
-    bg: 'linear-gradient(135deg,#f3eeff,#f8f5ff)',
-    accent: '#c9b4f8',
-    label: 'Governance',
-    title: 'Compliance, never an afterthought.',
-    body: 'Maintain policies, run audit cycles, and resolve compliance issues in one workflow — so nothing falls through the cracks.',
-    items: ['Policy management & acknowledgements', 'Audit lifecycle tools', 'Issue resolution workflow'],
-  },
+const pillars = [
+  { number:'01', eyebrow:'Environmental intelligence', title:'Measure every\nmaterial impact.', body:'Build a decision-ready emissions ledger across operations, products, suppliers and targets — with the evidence attached.', metric:'Scope 1—3', metricLabel:'connected carbon accounting', icon:Leaf, className:'eco-pillar-green', tags:['Emission factors','Product profiles','Climate goals'] },
+  { number:'02', eyebrow:'Social performance', title:'Turn participation\ninto progress.', body:'Move beyond annual snapshots. Plan initiatives, verify participation and make workforce impact visible across every department.', metric:'One view', metricLabel:'people, programmes and proof', icon:Users, className:'eco-pillar-coral', tags:['CSR programmes','Diversity signals','Employee action'] },
+  { number:'03', eyebrow:'Governance controls', title:'Keep every claim\naudit-ready.', body:'Connect policies, acknowledgements, audits and issues so accountability stays visible from first action to final disclosure.', metric:'Always on', metricLabel:'controls and ownership', icon:ShieldCheck, className:'eco-pillar-violet', tags:['Policy controls','Audit trails','Issue resolution'] },
 ];
 
-const testimonials = [
-  {
-    quote: "EcoSphere turned our scattered ESG spreadsheets into one calm, trustworthy system. Board-ready reports used to take two weeks — now it's an afternoon.",
-    name: 'Priya Sharma',
-    role: 'Chief Sustainability Officer, Nexora',
-    initials: 'PS',
-    color: '#d4f5e0',
-  },
-  {
-    quote: "The gamification layer genuinely changed employee behaviour. XP challenges made sustainability feel like something people wanted to do, not a tick-box exercise.",
-    name: 'Rajan Mehta',
-    role: 'Head of People, GreenWave',
-    initials: 'RM',
-    color: '#dde8ff',
-  },
-  {
-    quote: "We passed our first GRI audit with zero findings. The governance module kept every policy acknowledgement timestamped and audit-ready from day one.",
-    name: 'Aisha Lindqvist',
-    role: 'Compliance Lead, Solaris Group',
-    initials: 'AL',
-    color: '#ede0ff',
-  },
+const standards = [
+  { name:'GHG', detail:'Scope 1 · 2 · 3', tone:'lime' },
+  { name:'GRI', detail:'Impact reporting', tone:'cream' },
+  { name:'ISSB', detail:'S1 · S2 ready', tone:'blue' },
+  { name:'ESG', detail:'Connected evidence', tone:'coral' },
 ];
 
-/* ─── Sections ────────────────────────────────────────────── */
-
-function Hero({ onStart }) {
-  const ref = useRef(null);
-  const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
-
-  // Parallax layers — compositor-friendly (transform + opacity only)
-  const yHeadline = useTransform(scrollYProgress, [0, 1], [0, -120]);
-  const yCard1 = useTransform(scrollYProgress, [0, 1], [0, -60]);
-  const yCard2 = useTransform(scrollYProgress, [0, 1], [0, -110]);
-  const yCard3 = useTransform(scrollYProgress, [0, 1], [0, -40]);
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
-
-  // Spring wrappers so motion is fluid, not a hard lerp
-  const yH = useSpring(yHeadline, { stiffness: 80, damping: 20 });
-  const yC1 = useSpring(yCard1,    { stiffness: 60, damping: 18 });
-  const yC2 = useSpring(yCard2,    { stiffness: 50, damping: 18 });
-  const yC3 = useSpring(yCard3,    { stiffness: 70, damping: 18 });
-
-  return (
-    <section ref={ref} className="lp-hero">
-      {/* animated aurora blobs */}
-      <div className="lp-aurora lp-aurora-a" />
-      <div className="lp-aurora lp-aurora-b" />
-      <div className="lp-aurora lp-aurora-c" />
-
-      {/* floating background cards — parallax */}
-      <motion.div className="lp-float-card lp-fc1" style={{ y: yC1 }}>
-        <div className="lp-fc-eyebrow"><Leaf size={11} /> Environmental</div>
-        <div className="lp-fc-value">2.4M tCO₂e</div>
-        <div className="lp-fc-label">tracked this quarter</div>
-        <div className="lp-fc-bar"><div className="lp-fc-fill" style={{ width: '72%', background: '#6ee7a0' }} /></div>
-      </motion.div>
-
-      <motion.div className="lp-float-card lp-fc2" style={{ y: yC2 }}>
-        <div className="lp-fc-eyebrow"><Zap size={11} /> Gamification</div>
-        <div className="lp-fc-value">+4 840 XP</div>
-        <div className="lp-fc-label">earned this week</div>
-        <div className="lp-fc-avatars">
-          <i style={{ background: '#c4e7d1' }}>AS</i>
-          <i style={{ background: '#cfd9fa' }}>RP</i>
-          <i style={{ background: '#f4d7c6' }}>MK</i>
-          <span>+23 employees</span>
-        </div>
-      </motion.div>
-
-      <motion.div className="lp-float-card lp-fc3" style={{ y: yC3 }}>
-        <div className="lp-fc-eyebrow"><ShieldCheck size={11} /> Governance</div>
-        <div className="lp-fc-value">100%</div>
-        <div className="lp-fc-label">policy acknowledgement</div>
-        <div className="lp-fc-pill lp-pill-green">Audit-ready</div>
-      </motion.div>
-
-      {/* headline copy */}
-      <motion.div className="lp-hero-copy" style={{ y: yH, opacity: heroOpacity }}>
-        <motion.div
-          className="lp-eyebrow"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
-        >
-          <Leaf size={13} /> ESG intelligence, made human
-        </motion.div>
-
-        <motion.h1
-          className="lp-headline"
-          initial={{ opacity: 0, y: 28 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0, duration: 0.55, delay: 0.07 }}
-        >
-          Sustainability,<br />
-          <em>made intelligent.</em>
-        </motion.h1>
-
-        <motion.p
-          className="lp-subline"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0, duration: 0.5, delay: 0.14 }}
-        >
-          Carbon tracking, social impact, and governance compliance — unified in
-          one calm, connected workspace that your whole company will actually use.
-        </motion.p>
-
-        <motion.div
-          className="lp-hero-actions"
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0, duration: 0.5, delay: 0.2 }}
-        >
-          <button className="lp-cta-btn" onClick={onStart}>
-            Get started <ArrowUpRight size={17} />
-          </button>
-          <div className="lp-trust">
-            <div className="lp-avatars">
-              <i style={{ background: '#c4e7d1' }}>AS</i>
-              <i style={{ background: '#cfd9fa' }}>RP</i>
-              <i style={{ background: '#f4d7c6' }}>MK</i>
-            </div>
-            <span>Trusted by conscious teams everywhere</span>
-          </div>
-        </motion.div>
-      </motion.div>
-
-      {/* scroll indicator */}
-      <motion.div
-        className="lp-scroll-hint"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.2 }}
-      >
-        <motion.div
-          className="lp-scroll-dot"
-          animate={{ y: [0, 8, 0] }}
-          transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
-        />
-      </motion.div>
-    </section>
-  );
+function Mark({ light=false }) {
+  return <span className={`eco-mark ${light ? 'is-light' : ''}`} aria-hidden="true"><i/><i/><i/></span>;
 }
 
-function FeatureStorytelling() {
-  const containerRef = useRef(null);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start start', 'end end'],
-  });
-
-  // 3 segments: 0–0.33, 0.33–0.67, 0.67–1
-  const activeIndex = useTransform(scrollYProgress, [0, 0.34, 0.67, 1], [0, 1, 2, 2]);
-  const [active, setActive] = useState(0);
-
-  useEffect(() => {
-    const unsub = activeIndex.on('change', v => setActive(Math.round(v)));
-    return unsub;
-  }, [activeIndex]);
-
-  return (
-    <section ref={containerRef} className="lp-feature-outer">
-      <div className="lp-feature-sticky">
-        {/* left — text */}
-        <div className="lp-feature-copy">
-          <div className="lp-feature-tabs">
-            {features.map((f, i) => (
-              <button
-                key={f.label}
-                className={`lp-ftab ${active === i ? 'active' : ''}`}
-                style={active === i ? { color: f.color, borderColor: f.color } : {}}
-                onClick={() => {
-                  if (!containerRef.current) return;
-                  const el = containerRef.current;
-                  const total = el.scrollHeight - window.innerHeight;
-                  const target = el.offsetTop + (i / 3) * total;
-                  window.scrollTo({ top: target, behavior: 'smooth' });
-                }}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {features.map((f, i) => (
-            <motion.div
-              key={f.label}
-              className="lp-feature-text"
-              animate={{ opacity: active === i ? 1 : 0, y: active === i ? 0 : 18 }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.45 }}
-              style={{ pointerEvents: active === i ? 'auto' : 'none', position: 'absolute' }}
-            >
-              <div className="lp-feature-icon" style={{ background: f.bg, color: f.color }}>
-                <f.icon size={22} />
-              </div>
-              <h2 className="lp-feature-title">{f.title}</h2>
-              <p className="lp-feature-body">{f.body}</p>
-              <ul className="lp-feature-list">
-                {f.items.map(item => (
-                  <li key={item}>
-                    <span className="lp-check" style={{ color: f.color }}>✓</span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* right — morphing card */}
-        <div className="lp-feature-card-wrap">
-          {features.map((f, i) => (
-            <motion.div
-              key={f.label}
-              className="lp-feature-card"
-              style={{ background: f.bg }}
-              animate={{
-                opacity: active === i ? 1 : 0,
-                scale: active === i ? 1 : 0.94,
-                y: active === i ? 0 : 24,
-              }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
-            >
-              <div className="lp-fc-card-header">
-                <div className="lp-feature-icon-sm" style={{ color: f.color }}>
-                  <f.icon size={16} />
-                </div>
-                <span style={{ color: f.color, fontWeight: 800, fontSize: 11 }}>{f.label}</span>
-              </div>
-              <div className="lp-mock-chart">
-                {[65, 82, 58, 90, 74, 95, 88].map((h, idx) => (
-                  <motion.div
-                    key={idx}
-                    className="lp-bar"
-                    style={{ background: f.accent }}
-                    initial={{ scaleY: 0 }}
-                    animate={{ scaleY: active === i ? 1 : 0 }}
-                    transition={{ type: 'spring', bounce: 0, duration: 0.55, delay: idx * 0.04 }}
-                    custom={h}
-                  >
-                    <div style={{ height: `${h}%`, width: '100%', background: f.accent, borderRadius: 4, transformOrigin: 'bottom' }} />
-                  </motion.div>
-                ))}
-              </div>
-              <div className="lp-fc-stat">
-                <strong style={{ color: f.color }}>
-                  {i === 0 ? '2.4M tCO₂e' : i === 1 ? '94%' : '100%'}
-                </strong>
-                <span>
-                  {i === 0 ? 'emissions tracked' : i === 1 ? 'participation rate' : 'compliance score'}
-                </span>
-              </div>
-              {f.items.map((item, idx) => (
-                <motion.div
-                  key={item}
-                  className="lp-fc-row"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: active === i ? 1 : 0, x: active === i ? 0 : -10 }}
-                  transition={{ type: 'spring', bounce: 0, duration: 0.4, delay: 0.1 + idx * 0.07 }}
-                >
-                  <span className="lp-check" style={{ color: f.color }}>✓</span>
-                  <span>{item}</span>
-                </motion.div>
-              ))}
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
+function MagneticButton({ children, className='', onClick }) {
+  const ref=useRef(null);
+  const move=(event)=>{ if(window.matchMedia('(pointer: coarse)').matches)return; const rect=ref.current.getBoundingClientRect(); gsap.to(ref.current,{x:(event.clientX-rect.left-rect.width/2)*.13,y:(event.clientY-rect.top-rect.height/2)*.13,duration:.35,ease:'power3.out'}); };
+  const reset=()=>gsap.to(ref.current,{x:0,y:0,duration:.55,ease:'elastic.out(1, .35)'});
+  return <button ref={ref} className={className} onMouseMove={move} onMouseLeave={reset} onClick={onClick}>{children}</button>;
 }
-
-function StatsStrip() {
-  const stats = [
-    { value: 12000, suffix: '+', label: 'Teams worldwide', color: '#2a7a4b' },
-    { value: 2.4, suffix: 'M tCO₂e', label: 'Emissions tracked', color: '#2c5fcb' },
-    { value: 99.8, suffix: '%', label: 'Platform uptime', color: '#6b3cc9' },
-    { value: 4, suffix: '×', label: 'Faster reporting', color: '#c05c18' },
-  ];
-
-  return (
-    <section className="lp-stats">
-      <motion.div
-        className="lp-stats-inner"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: '-80px' }}
-        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-      >
-        <motion.p
-          className="lp-section-eyebrow"
-          variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0, duration: 0.5 } } }}
-        >
-          <Globe size={13} /> Trusted at scale
-        </motion.p>
-        <motion.h2
-          className="lp-section-title"
-          variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0, duration: 0.5, delay: 0.06 } } }}
-        >
-          Numbers that matter.
-        </motion.h2>
-
-        <div className="lp-stats-grid">
-          {stats.map((s, i) => (
-            <motion.div
-              key={s.label}
-              className="lp-stat-card"
-              variants={{
-                hidden: { opacity: 0, y: 24, scale: 0.96 },
-                visible: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', bounce: 0.1, duration: 0.55, delay: 0.1 + i * 0.08 } },
-              }}
-            >
-              <div className="lp-stat-value" style={{ color: s.color }}>
-                <AnimatedCount to={s.value} />{s.suffix}
-              </div>
-              <div className="lp-stat-label">{s.label}</div>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-    </section>
-  );
-}
-
-/* Rubber-band drag carousel (Apple §9) */
-function TestimonialCarousel() {
-  const trackRef = useRef(null);
-  const x = useMotionValue(0);
-  const [idx, setIdx] = useState(0);
-  const CARD_W = 480; // roughly
-
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  // rubber-band resistance beyond edges
-  function rubberband(overshoot, dim = 400, k = 0.55) {
-    return (overshoot * dim * k) / (dim + k * Math.abs(overshoot));
-  }
-
-  const maxDrag = -(testimonials.length - 1) * CARD_W;
-
-  const handleDragEnd = (_, info) => {
-    const vel = info.velocity.x;
-    const cur = x.get();
-    const projected = cur + (vel / 1000) * 0.998 / (1 - 0.998); // Apple's projection
-    const snapped = Math.round(clamp(projected, maxDrag, 0) / CARD_W) * CARD_W;
-    setIdx(-snapped / CARD_W);
-    animate(x, snapped, { type: 'spring', bounce: 0.15, duration: 0.5, velocity: vel });
-  };
-
-  return (
-    <section className="lp-testimonials">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-60px' }}
-        transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
-      >
-        <p className="lp-section-eyebrow"><Star size={13} /> What teams say</p>
-        <h2 className="lp-section-title">Calm clarity, every quarter.</h2>
-      </motion.div>
-
-      <div className="lp-carousel-outer">
-        <motion.div
-          ref={trackRef}
-          className="lp-carousel-track"
-          style={{ x }}
-          drag="x"
-          dragElastic={0}
-          dragMomentum={false}
-          onDrag={(_, info) => {
-            const raw = x.get();
-            if (raw > 0) {
-              x.set(rubberband(raw));
-            } else if (raw < maxDrag) {
-              x.set(maxDrag + rubberband(raw - maxDrag));
-            }
-          }}
-          onDragEnd={handleDragEnd}
-          whileTap={{ cursor: 'grabbing' }}
-        >
-          {testimonials.map((t, i) => (
-            <motion.article
-              key={t.name}
-              className="lp-tcard"
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.5, delay: i * 0.1 }}
-            >
-              <p className="lp-tquote">"{t.quote}"</p>
-              <div className="lp-tauthor">
-                <div className="lp-tavatar" style={{ background: t.color }}>{t.initials}</div>
-                <div>
-                  <strong>{t.name}</strong>
-                  <span>{t.role}</span>
-                </div>
-              </div>
-            </motion.article>
-          ))}
-        </motion.div>
-      </div>
-
-      {/* dot indicators */}
-      <div className="lp-dots">
-        {testimonials.map((_, i) => (
-          <button
-            key={i}
-            className={`lp-dot ${idx === i ? 'active' : ''}`}
-            onClick={() => {
-              setIdx(i);
-              animate(x, -i * CARD_W, { type: 'spring', bounce: 0, duration: 0.5 });
-            }}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DarkCTA({ onStart }) {
-  return (
-    <section className="lp-dark-cta">
-      <div className="lp-dark-inner">
-        <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.97 }}
-          whileInView={{ opacity: 1, y: 0, scale: 1 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ type: 'spring', bounce: 0, duration: 0.55 }}
-          className="lp-dark-content"
-        >
-          <div className="lp-dark-orbs">
-            <div className="lp-dark-orb lp-dark-orb-a" />
-            <div className="lp-dark-orb lp-dark-orb-b" />
-          </div>
-          <p className="lp-eyebrow lp-eyebrow-light"><Leaf size={13} /> EcoSphere · ESG Platform</p>
-          <h2 className="lp-dark-title">
-            Start your ESG journey<br />
-            <em>today.</em>
-          </h2>
-          <p className="lp-dark-body">
-            Join thousands of conscious teams who turned sustainability from a spreadsheet
-            into a company-wide movement.
-          </p>
-          <div className="lp-dark-actions">
-            <button className="lp-cta-btn lp-cta-light" onClick={onStart}>
-              Get started <ArrowUpRight size={17} />
-            </button>
-            <div className="lp-trust lp-trust-light">
-              <div className="lp-avatars">
-                <i style={{ background: '#4a7c5e' }}>AS</i>
-                <i style={{ background: '#3c5caa' }}>RP</i>
-                <i style={{ background: '#7c4c2e' }}>MK</i>
-              </div>
-              <span>12 000+ teams worldwide</span>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Main export ─────────────────────────────────────────── */
 
 export default function LandingPage({ onStart }) {
-  return (
-    <div className="lp-root">
-      {/* nav */}
-      <motion.header
-        className="lp-nav"
-        initial={{ opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
-      >
-        <div className="brand">
-          <Mark />
-          <span>EcoSphere</span>
-        </div>
-        <nav className="lp-nav-links">
-          <a href="#features">Features</a>
-          <a href="#stats">Impact</a>
-          <a href="#testimonials">Reviews</a>
-        </nav>
-        <button className="lp-nav-cta" onClick={onStart}>
-          Sign in <ArrowUpRight size={14} />
-        </button>
-      </motion.header>
+  const root=useRef(null);
+  const [menuOpen,setMenuOpen]=useState(false);
 
-      <Hero onStart={onStart} />
+  useLayoutEffect(()=>{
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)return undefined;
+    const ctx=gsap.context(()=>{
+      const intro=gsap.timeline({defaults:{ease:'power4.out'}});
+      intro.from('.eco-nav',{y:-50,opacity:0,duration:.8})
+        .from('.eco-hero-kicker',{y:24,opacity:0,duration:.65},'-=.35')
+        .from('.eco-hero-line span',{yPercent:115,rotate:3,stagger:.08,duration:1.05},'-=.45')
+        .from('.eco-hero-bottom > *',{y:24,opacity:0,stagger:.09,duration:.65},'-=.55')
+        .from('.eco-hero-visual',{clipPath:'inset(0 50% 0 50% round 38px)',scale:.92,duration:1.2},'-=.75');
+      gsap.to('.eco-hero-visual img',{yPercent:12,ease:'none',scrollTrigger:{trigger:'.eco-hero',start:'top top',end:'bottom top',scrub:true}});
+      gsap.utils.toArray('.eco-reveal').forEach(element=>gsap.from(element,{y:70,opacity:0,duration:1,ease:'power3.out',scrollTrigger:{trigger:element,start:'top 84%'}}));
+      gsap.to('.eco-marquee-track',{xPercent:-18,ease:'none',scrollTrigger:{trigger:'.eco-manifesto',start:'top bottom',end:'bottom top',scrub:1}});
+      const cards=gsap.utils.toArray('.eco-pillar-card');
+      const mm=gsap.matchMedia();
+      mm.add('(min-width: 900px)',()=>gsap.to(cards,{xPercent:-100*(cards.length-1),ease:'none',scrollTrigger:{trigger:'.eco-pillars-pin',pin:true,scrub:1,snap:1/(cards.length-1),end:()=>`+=${window.innerWidth*2.2}`}}));
+      gsap.from('.eco-dashboard-shell',{clipPath:'circle(8% at 50% 52%)',scale:.86,scrollTrigger:{trigger:'.eco-platform',start:'top 70%',end:'center 52%',scrub:1}});
+      gsap.utils.toArray('.eco-float-metric').forEach((item,index)=>gsap.to(item,{y:index%2?-38:42,rotate:index%2?2:-2,ease:'none',scrollTrigger:{trigger:'.eco-platform',start:'top bottom',end:'bottom top',scrub:1.4}}));
+      gsap.from('.eco-proof-word',{yPercent:110,rotate:5,stagger:.1,duration:1,ease:'power4.out',scrollTrigger:{trigger:'.eco-proof',start:'top 62%'}});
+      return ()=>mm.revert();
+    },root);
+    return ()=>ctx.revert();
+  },[]);
 
-      <div id="features">
-        <FeatureStorytelling />
+  const goTo=(id)=>{setMenuOpen(false);document.querySelector(id)?.scrollIntoView({behavior:'smooth'});};
+
+  return <main className="eco-root" ref={root}>
+    <header className="eco-nav">
+      <button className="eco-brand" onClick={()=>goTo('#top')} aria-label="EcoSphere home"><Mark/><strong>ECOSPHERE</strong></button>
+      <nav className={menuOpen?'is-open':''} aria-label="Primary navigation">
+        <button onClick={()=>goTo('#platform')}>Platform</button><button onClick={()=>goTo('#pillars')}>Solutions</button><button onClick={()=>goTo('#standards')}>Standards</button><button onClick={()=>goTo('#about')}>Why EcoSphere</button>
+      </nav>
+      <MagneticButton className="eco-nav-cta" onClick={onStart}>Enter workspace <ArrowUpRight size={16}/></MagneticButton>
+      <button className="eco-menu" onClick={()=>setMenuOpen(!menuOpen)} aria-label="Toggle menu">{menuOpen?<X/>:<Menu/>}</button>
+    </header>
+
+    <section className="eco-hero" id="top">
+      <div className="eco-hero-kicker"><Sparkles size={15}/> The operating system for accountable impact</div>
+      <h1 aria-label="All impact. One signal."><span className="eco-hero-line"><span>ALL IMPACT.</span></span><span className="eco-hero-line eco-hero-line-accent"><span>ONE SIGNAL.</span></span></h1>
+      <div className="eco-hero-bottom">
+        <p>Carbon, people and governance data — connected to the decisions that move your business forward.</p>
+        <MagneticButton className="eco-round-cta" onClick={()=>goTo('#platform')}><span>See it live</span><ArrowDown size={20}/></MagneticButton>
+        <div className="eco-hero-note"><CircleDot size={15}/> Evidence in. Confidence out.</div>
       </div>
+      <div className="eco-hero-visual"><img src="/images/ecosphere-landscape.png" alt="Regenerative landscape layered with environmental data signals"/><div className="eco-image-label eco-image-label-left"><span>LIVE</span> Material impact map</div><div className="eco-image-label eco-image-label-right">12 regions connected <Globe2 size={15}/></div></div>
+    </section>
 
-      <div id="stats">
-        <StatsStrip />
+    <section className="eco-manifesto" id="about">
+      <div className="eco-orbit" aria-hidden="true"><Leaf/><span>TRACE · ACT · REPORT ·</span></div>
+      <div className="eco-manifesto-copy"><p className="eco-reveal">Sustainability data is everywhere.</p><h2 className="eco-reveal">CLARITY<br/><em>ISN'T.</em></h2><div className="eco-manifesto-answer eco-reveal"><span>So we built one connected system</span><h3>FROM RAW DATA<br/>TO REAL ACTION.</h3></div></div>
+      <div className="eco-marquee"><div className="eco-marquee-track">MEASURE WHAT MATTERS — PROVE WHAT CHANGED — MEASURE WHAT MATTERS — PROVE WHAT CHANGED —</div></div>
+    </section>
+
+    <section className="eco-pillars" id="pillars">
+      <div className="eco-section-intro eco-reveal"><span>Three pillars. No blind spots.</span><h2>ONE PLATFORM.<br/>THE WHOLE PICTURE.</h2><p>Every record stays linked to its owner, evidence and next action.</p></div>
+      <div className="eco-pillars-pin"><div className="eco-pillars-track">{pillars.map(pillar=>{const Icon=pillar.icon;return <article className={`eco-pillar-card ${pillar.className}`} key={pillar.number}>
+        <div className="eco-pillar-top"><span>{pillar.number} / 03</span><Icon size={28}/></div>
+        <div className="eco-pillar-copy"><span>{pillar.eyebrow}</span><h3>{pillar.title.split('\n').map(line=><span key={line}>{line}</span>)}</h3><p>{pillar.body}</p><div className="eco-tags">{pillar.tags.map(tag=><i key={tag}><Check size={13}/>{tag}</i>)}</div></div>
+        <div className="eco-pillar-metric"><strong>{pillar.metric}</strong><span>{pillar.metricLabel}</span></div><div className="eco-card-orbit" aria-hidden="true"><i/><i/><i/></div>
+      </article>;})}</div></div>
+    </section>
+
+    <section className="eco-platform" id="platform">
+      <div className="eco-platform-heading eco-reveal"><span>Connected ESG workspace</span><h2>YOUR IMPACT.<br/><em>IN MOTION.</em></h2></div>
+      <div className="eco-dashboard-stage">
+        <aside className="eco-float-metric eco-float-one"><span>Emissions intensity</span><strong>↓ 18.6%</strong><small>against baseline</small></aside><aside className="eco-float-metric eco-float-two"><span>Policy coverage</span><strong>96%</strong><small>team acknowledged</small></aside><aside className="eco-float-metric eco-float-three"><span>Active workforce</span><strong>1,284</strong><small>people participating</small></aside>
+        <div className="eco-dashboard-shell"><div className="eco-dash-sidebar"><Mark light/>{[BarChart3,Leaf,Users,ShieldCheck,FileCheck2].map((Icon,index)=><span className={index===1?'active':''} key={index}><Icon size={18}/></span>)}</div><div className="eco-dash-main">
+          <div className="eco-dash-head"><div><span>ORGANIZATION OVERVIEW</span><strong>Good morning, Maya.</strong></div><button>Export report <ArrowUpRight size={14}/></button></div>
+          <div className="eco-dash-scores"><article><span>Environmental</span><strong>82</strong><i><b style={{width:'82%'}}/></i></article><article><span>Social</span><strong>74</strong><i><b style={{width:'74%'}}/></i></article><article><span>Governance</span><strong>91</strong><i><b style={{width:'91%'}}/></i></article></div>
+          <div className="eco-dash-grid"><article className="eco-chart-card"><span>EMISSIONS TREND</span><strong>2,418 <small>tCO₂e</small></strong><div className="eco-line-chart"><svg viewBox="0 0 500 140" preserveAspectRatio="none"><path d="M0,110 C55,85 75,98 120,72 C168,44 203,83 250,52 C303,19 328,60 375,31 C418,7 459,23 500,5"/><path className="area" d="M0,110 C55,85 75,98 120,72 C168,44 203,83 250,52 C303,19 328,60 375,31 C418,7 459,23 500,5 L500,140 L0,140 Z"/></svg></div></article><article className="eco-action-card"><span>NEXT BEST ACTION</span><Zap size={25}/><strong>Review supplier data gaps</strong><p>8 records need evidence before reporting.</p><button>Open queue <ArrowRight size={14}/></button></article></div>
+        </div></div>
       </div>
+    </section>
 
-      <div id="testimonials">
-        <TestimonialCarousel />
-      </div>
+    <section className="eco-standards" id="standards">
+      <div className="eco-standards-head eco-reveal"><span>Built around the language teams already report in</span><h2>STRUCTURE FOR TODAY.<br/>READY FOR WHAT'S NEXT.</h2></div>
+      <div className="eco-standard-grid">{standards.map(standard=><article className={`eco-standard eco-${standard.tone} eco-reveal`} key={standard.name}><ArrowUpRight size={19}/><strong>{standard.name}</strong><span>{standard.detail}</span></article>)}</div>
+      <p className="eco-standards-note">Framework-ready workflows; your final disclosures remain subject to your organisation's reporting scope, controls and assurance.</p>
+    </section>
 
-      <DarkCTA onStart={onStart} />
+    <section className="eco-proof">
+      <div className="eco-proof-kicker"><span>Not another dashboard.</span><span>A system for follow-through.</span></div>
+      <h2><span className="eco-proof-line"><span className="eco-proof-word">CAPTURE.</span></span><span className="eco-proof-line eco-proof-accent"><span className="eco-proof-word">CONNECT.</span></span><span className="eco-proof-line"><span className="eco-proof-word">CHANGE.</span></span></h2>
+      <div className="eco-proof-flow">{[['01','Capture','Bring operational data, evidence and ownership into one reliable record.'],['02','Connect','Link environmental, social and governance signals across teams.'],['03','Change','Turn live insights into assigned actions, verified progress and reports.']].map(([number,title,body])=><article key={number}><span>{number}</span><h3>{title}</h3><p>{body}</p></article>)}</div>
+    </section>
 
-      <footer className="lp-footer">
-        <div className="brand">
-          <Mark />
-          <span>EcoSphere</span>
-        </div>
-        <span>© 2026 EcoSphere · Built for better business</span>
-        <span className="lp-footer-links">
-          <a href="#">Privacy</a>
-          <a href="#">Terms</a>
-          <a href="#">Security</a>
-        </span>
-      </footer>
-    </div>
-  );
+    <footer className="eco-footer"><div className="eco-footer-top"><p>Ready to make impact<br/>part of how work gets done?</p><MagneticButton className="eco-footer-cta" onClick={onStart}>ENTER ECOSPHERE <ArrowUpRight/></MagneticButton></div><div className="eco-footer-word">ECO<span>SPHERE</span></div><div className="eco-footer-bottom"><div className="eco-brand"><Mark light/><strong>ECOSPHERE</strong></div><span>© 2026 · Built for accountable business</span><div><button onClick={()=>goTo('#top')}>Back to top ↑</button><button onClick={onStart}>Sign in</button></div></div></footer>
+  </main>;
 }

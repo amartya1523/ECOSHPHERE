@@ -9,3 +9,4 @@ from . import esg_leaderboard
 from . import esg_score
 from . import esg_org_dashboard
 from . import esg_workspace
+from . import res_users

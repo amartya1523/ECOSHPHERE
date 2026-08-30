@@ -6,7 +6,7 @@
     "category": "Sustainability",
     "author": "EcoSphere",
     "license": "LGPL-3",
-    "depends": ["base", "mail", "hr", "product", "purchase"],
+    "depends": ["base", "mail", "hr", "product", "purchase", "auth_oauth"],
     "data": [
         "security/esg_security.xml",
         "security/ir.model.access.csv",

@@ -94,6 +94,20 @@ export async function signIn(login, password) {
   return body.result;
 }
 
+export const getGoogleOAuth = redirect => rpc('/ecosphere/api/oauth/google', {redirect});
+
+export async function getSession() {
+  const {base} = await getClientConfig();
+  const response = await fetch(`${base}/web/session/get_session_info`, {
+    method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {}}),
+  });
+  const body = await readJson(response, 'Could not restore your Google session.');
+  throwJsonRpcError(body, 'Could not restore your Google session.');
+  if (!response.ok || !body.result?.uid) throw new Error('Google sign-in did not create an EcoSphere session.');
+  return body.result;
+}
+
 export async function signUp(name, workspace_name, email, password) {
   const {base} = await getClientConfig();
   const response = await fetch(`${base}/ecosphere/api/signup`, {

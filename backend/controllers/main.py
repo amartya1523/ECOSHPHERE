@@ -1,7 +1,10 @@
 import base64
 import csv
 import io
+import json
+import os
 from datetime import timedelta
+from urllib.parse import quote_plus, urlencode, urlparse
 
 from odoo import http, _, fields
 from odoo.http import request
@@ -741,6 +744,56 @@ class EcoSphereAPI(http.Controller):
             'groups_id': [(6, 0, [manager_group.id])],
         })
         return {'id': user.id, 'workspace': workspace.name, 'message': _("Enterprise administrator account created.")}
+
+    @http.route('/ecosphere/api/oauth/google', type='json', auth='public', methods=['POST'], csrf=False)
+    def google_oauth(self, redirect=None):
+        """Return an Odoo OAuth URL without exposing credentials to frontend code."""
+        provider = request.env.ref('auth_oauth.provider_google', raise_if_not_found=False)
+        if not provider:
+            return {'configured': False, 'message': _("Google sign-in is not installed on this server.")}
+        provider = provider.sudo()
+
+        environment_client_id = (os.getenv('GOOGLE_OAUTH_CLIENT_ID') or '').strip()
+        if environment_client_id and (provider.client_id != environment_client_id or not provider.enabled):
+            provider.sudo().write({'client_id': environment_client_id, 'enabled': True})
+
+        if not provider.enabled or not provider.client_id:
+            return {
+                'configured': False,
+                'message': _("Google sign-in needs a GOOGLE_OAUTH_CLIENT_ID on the server."),
+            }
+
+        request_origin = (request.httprequest.headers.get('Origin') or '').rstrip('/')
+        parsed_redirect = urlparse(redirect or '')
+        redirect_origin = f'{parsed_redirect.scheme}://{parsed_redirect.netloc}' if parsed_redirect.scheme and parsed_redirect.netloc else ''
+        if (
+            not request_origin
+            or redirect_origin != request_origin
+            or parsed_redirect.path != '/auth/callback'
+            or parsed_redirect.query
+            or parsed_redirect.fragment
+        ):
+            redirect = f"{request_origin or request.httprequest.url_root.rstrip('/')}/auth/callback"
+
+        callback_uri = request.httprequest.url_root.rstrip('/') + '/auth_oauth/signin'
+        state = {
+            'd': request.session.db or request.db,
+            'p': provider.id,
+            'r': quote_plus(redirect),
+            'c': {'no_user_creation': True},
+        }
+        query = urlencode({
+            'response_type': 'token',
+            'client_id': provider.client_id,
+            'redirect_uri': callback_uri,
+            'scope': provider.scope,
+            'state': json.dumps(state),
+        })
+        return {
+            'configured': True,
+            'auth_url': f'{provider.auth_endpoint}?{query}',
+            'callback_uri': callback_uri,
+        }
 
     @http.route('/ecosphere/api/gamification', type='json', auth='user', methods=['POST'], csrf=False)
     def gamification(self):
