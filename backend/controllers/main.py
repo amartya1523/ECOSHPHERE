@@ -8,6 +8,8 @@ from odoo.http import request
 from odoo.exceptions import ValidationError
 from odoo.tools import html2plaintext
 
+from ..services.ai_query import EcoSphereAIQueryPipeline
+
 
 class EcoSphereAPI(http.Controller):
     # The browser never receives a model name from the caller.  This allow-list is
@@ -1305,7 +1307,26 @@ class EcoSphereAPI(http.Controller):
 
     @http.route('/ecosphere/api/ai/chat', type='json', auth='user', methods=['POST'], csrf=False)
     def ai_chat(self, message=None, conversation_id=None):
-        """Grounded, typed-tool chatbot endpoint. It never executes free-form SQL."""
+        """Backward-compatible chat alias for the auditable multi-agent query layer."""
+        return self.ai_query(question=message, conversation_id=conversation_id)
+
+    @http.route('/ecosphere/api/ai/query', type='json', auth='user', methods=['POST'], csrf=False)
+    def ai_query(self, question=None, query=None, message=None, conversation_id=None, role=None, department_id=None, employee_id=None, history=None):
+        """Grounded four-agent data query endpoint. It never executes free-form SQL."""
+        prompt = (question or query or message or '').strip()
+        if not prompt:
+            raise ValidationError(_("Ask EcoSphere AI a question first."))
+        return EcoSphereAIQueryPipeline(request.env).run(
+            prompt,
+            conversation_id=conversation_id,
+            role=role,
+            department_id=department_id,
+            employee_id=employee_id,
+            history=history,
+        )
+
+    def _legacy_ai_chat(self, message=None, conversation_id=None):
+        """Previous single-dispatch implementation retained for comparison/debugging."""
         prompt = (message or '').strip()
         if not prompt:
             raise ValidationError(_("Ask EcoSphere AI a question first."))

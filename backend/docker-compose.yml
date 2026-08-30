@@ -31,6 +31,8 @@ services:
       PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
       ODOO_DATABASE: ${ODOO_DATABASE:-ecosphere_db}
       ECOSPHERE_SEED_DEMO_ACCOUNTS: ${ECOSPHERE_SEED_DEMO_ACCOUNTS:-1}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
     volumes:
       - .:/mnt/extra-addons/eco_sphere_esg
       - ecosphere-odoo-data:/var/lib/odoo
