@@ -50,7 +50,7 @@ async function readJson(response, fallbackMessage) {
     return JSON.parse(text);
   } catch {
     if (/<!doctype html|<html[\s>]/i.test(text)) {
-      if (/\/web\/login|session expired|login/i.test(text)) {
+      if (/\/web\/login|session expired|odoo\.http\.SessionExpiredException/i.test(text)) {
         notifySessionExpired();
         throw new SessionExpiredError();
       }
@@ -153,7 +153,7 @@ export const createComplianceIssue = values => rpc('/ecosphere/api/compliance-is
 export const updateComplianceIssue = (id, values) => rpc(`/ecosphere/api/compliance-issues/${id}/update`, {values});
 export const runComplianceIssueAction = (id, action) => rpc(`/ecosphere/api/compliance-issues/${id}/${action}`);
 export const exportAuditWorkspace = filters => rpc('/ecosphere/api/audit-workspace/export', filters || {});
-export const askEcoSphereAI = (message, conversation_id) => rpc('/ecosphere/api/ai/chat', {message, conversation_id});
+export const askEcoSphereAI = (question, conversation_id) => rpc('/ecosphere/api/ai/query', {question, conversation_id});
 export const getTeam = () => rpc('/ecosphere/api/team');
 export const createTeamMember = (name, email, password, department_id) => rpc('/ecosphere/api/team/create', {name, email, password, department_id});
 export const getSettings = () => rpc('/ecosphere/api/settings');
